@@ -1,0 +1,2974 @@
+---
+title: "Macroparasite Model - Berding 1987"
+author: "Brendan Haile"
+date: "8/1/2022"
+output: word_document
+---
+
+```{r Packages}
+library(deSolve)
+library(tidyverse)
+library(cowplot)
+```
+
+```{r Function - Exponential Growth}
+#Creating the function
+macroParasite <- function(t, x, parameters){
+  H <- x[1]
+  P <- x[2]
+  with(                                   
+       as.list(params),                   
+       {                                  
+         dH <- (b-d)*H-alpha*P
+         dP <- (beta*H*lambda*P)/(gamma+beta*H) - P*(d+mu+alpha) - (P*P*alpha*(k+1))/(k*H)
+         dXlist <- c(dH,dP)                
+         list(dXlist)                         
+       }
+       )
+}
+```
+
+```{r Function - Logistic Growth}
+#Recreating the macroparasite function but with logistic growth
+
+# list of parameters for quick reference
+# b = per capita host birth rate
+# d = per capita host mortality
+# alpha = additional per capita host mortality due to parasite burden (P/H)*H
+# beta = transmission (ingestion) rate of parasites by host
+# lambda = external parasite production rate (per parasite)
+# gamma = per capita loss rate of entl parasite stages
+# mu = parasite mortality within hosts
+# k = overdispersion parameter; measures parasite Dispersion (low k = highly aggregated in few hosts, high k = equally distributed among hosts)
+
+macroParasiteLogistic <- function(t, x, parameters){
+  H <- x[1]
+  P <- x[2]
+  with(                                   
+       as.list(params),                   
+       {                                  
+         dH <- (b-d)*H*(1-(H/KcarryCap))-(alpha*P)
+         dP <- (beta*H*lambda*P)/(gamma+beta*H) - P*(d+mu+alpha) - (P*P*alpha*(k+1))/(k*H)
+         dXlist <- c(dH,dP)                
+         list(dXlist)                         
+       }
+       )
+}
+```
+
+```{r Parameters}
+#b, d, alpha, beta, lambda, mu, gamma, and k from Berding 1987
+#Carrying Capacity estimated from Forbes 2014
+b <- 0.56                  #8^10^-2 (daily rate) multiplied by 7 to get weekly rate of 0.56
+d <- 0.14                  #2^10^-2 (daily rate) multiplied by 7 to get weekly rate of 0.14
+alpha <- 0.0035          #5*10^-4 (daily rate) multiplied by 7 to get weekly rate of 0.000154 [this has a range going down to 2.2^10-5 (daily) or 0.000154 weekly rate] ~~~WE USE LOWER BOUND HERE BECAUSE THAT WAS LOW PROTEIN DIET~~~    
+beta <- 0.0105             #1.5^10^-3 (daily rate) multiplied by 7 to get weekly rate of 0.0105 [this has a range going up to 6*10^-3 (daily) or 0.042 weekly rate]
+KcarryCap <- 120            #40 taken from Forbes2014 Figure 1 (40 voles/0.0625hectare)      [taking 3 quadrats]    
+lambda <- 1260             #180 (daily rate) multiplied by 7 to get weekly rate of 1260
+gamma <- 1820              #260 (daily rate) multiplied by 7 to get weekly rate of 1820 [old value from Fenton2007 is 0.5]
+mu <- 0.0392               #5.6^10^-3 (daily rate) multiplied by 7 to get weekly rate ~~~ONLY NATURAL DEATH OF PARASITE NO HOST IMMUNE RESPONSE~~~
+k <- 1.31                  #range of 1.31 to 5.44
+```
+```{r Parameter Colors for Graphing}
+#b, d, alpha, beta, lambda, mu, gamma, and k from Berding 1987
+#Carrying Capacity estimated from Forbes 2014
+b <- "#1F78B4"
+d <- "#FB9A99"
+alpha <- "#A6CEE3"    
+betaClust <-"#B2DF8A"
+betaSpread <- "#33A02C"
+KcarryCap <- "#FDBF6F" 
+lambda <- "#6A3D9A"
+gamma <- "#E31A1C"
+mu <- "#000000"
+kClust <- "#FF7F00"
+kSpread <- "#CAB2D6"
+
+```
+
+```{r Impact of Resources - Spread & Clustered}
+#Clustered
+    #b (per capita host birth rate) INCREASES with resources
+    #d (per capita host mortality) DECREASES with resources
+    #alpha (additional per capita host mortality due to parasite burden) DECREASES with resources
+    #beta (transmission/ingestion rate of parasites by host) INCREASES with resources
+        #rodents gather at food site increasing exposure
+    #lambda (external parasite production rate (per parasite)) INCREASES with resources
+    #gamma (per capita loss rate of environmental parasite stages) NO CHANGE with resources
+    #mu (parasite mortality within hosts) INCREASES with resources
+    #k (overdispersion parameter) INCREASES with resources
+        #rodents gather at food site increasing host availability for macroparasites which may even out spread
+    #KcarryCap INCREASES with resources
+
+#Spread
+    #b (per capita host birth rate) INCREASES with resources
+    #d (per capita host mortality) DECREASES with resources
+    #alpha (additional per capita host mortality due to parasite burden) DECREASES with resources
+    #beta (transmission/ingestion rate of parasites by host) DECREASES with resources
+        #rodents remain spread out due to widespread resource availability which limits contact with macroparasites
+            #possible not effected? less overlap and contact so might decrease. unsure
+    #lambda (external parasite production rate (per parasite)) INCREASES with resources
+    #gamma (per capita loss rate of environmental parasite stages) NO CHANGE by resources
+    #mu (parasite mortality within hosts) INCREASES with resources
+    #k (overdispersion parameter) DECREASES with resources
+        #rodents spend less time traveling and foraging decreasing host availability for macroparasites which may lead to superhosts. Revisits by same rodent host might be infected by later generations of macroparasites.
+    #KcarryCap INCREASES with resources
+
+#Differences in Clustered vs Spread
+  #beta (transmission/ingestion rate of parasites by host)
+  #k (overdispersion parameter)
+
+```
+```{r Formula - Impact of Resources is Proportional}
+#Resources vary from 1-3 in increments of 0.2
+resource <- seq(1, 3, by=0.2)
+  #resource = 1 is the baseline natural resource availability
+  #resource = 1.2 is a 20% increase in resources (supplementation)
+  #resource = 2.0 is a 100% increase in resources
+  #resource = 2.4 is a 140% increase in resources
+
+b0 <- 0.56                  #8^10^-2 (daily rate) multiplied by 7 to get weekly rate of 0.56
+d0 <- 0.14                  #2^10^-2 (daily rate) multiplied by 7 to get weekly rate of 0.14
+alpha0 <- 0.0035          #5*10^-4 (daily rate) multiplied by 7 to get weekly rate of 0.000154 [this has a range going down to 2.2^10-5 (daily) or 0.000154 weekly rate] ~~~WE USE LOWER BOUND HERE BECAUSE THAT WAS LOW PROTEIN DIET~~~    
+beta0 <- 0.0105             #1.5^10^-3 (daily rate) multiplied by 7 to get weekly rate of 0.0105 [this has a range going up to 6*10^-3 (daily) or 0.042 weekly rate]
+KcarryCap0 <- 120            #40 taken from Forbes2014 Figure 1 (40 voles/0.0625hectare)      [taking 3 quadrats]    
+lambda0 <- 1260             #180 (daily rate) multiplied by 7 to get weekly rate 
+gamma0 <- 1820               #260 (daily rate) multiplied by 7 to get weekly rate of 1820 [old value from Fenton2007 is 0.5]
+mu0 <- 0.0392               #5.6^10^-3 (daily rate) multiplied by 7 to get weekly rate
+k0 <- 1.31                  #range of 1.31 to 5.44
+
+#Varying the parameters
+br = b0*resource
+dr = d0/resource
+alphar = alpha0/resource
+betarClust = beta0*resource
+betarSpread = beta0/resource
+KcarryCapr = KcarryCap0*resource
+lambdar = lambda0*resource
+gammar = gamma0 #not effected
+mur = mu0*resource
+krClust = k0*resource
+krSpread = k0/resource
+```
+
+```{r - Starting Information - xstart, seasons, time, and resource}
+#Setting resource availability
+resource <- seq(1, 2, by=0.05)
+
+xstart <- c(H=119, P=1)
+seasons <- (26*2)+1 #One season is 26 weeks. So we use (26*x)+1 because we start a 1
+time <- seq(1,seasons,by=1)
+
+#Parameter Values
+b0 <- 0.56                  #8^10^-2 (daily rate) multiplied by 7 to get weekly rate of 0.56
+d0 <- 0.14                  #2^10^-2 (daily rate) multiplied by 7 to get weekly rate of 0.14
+alpha0 <- 0.0035          #5*10^-4 (daily rate) multiplied by 7 to get weekly rate of 0.0035 [this has a range going down to 2.2^10-5 (daily) or 0.000154 weekly rate] ~~~WE USE LOWER BOUND HERE BECAUSE THAT WAS LOW PROTEIN DIET~~~    
+beta0 <- 0.0105             #1.5^10^-3 (daily rate) multiplied by 7 to get weekly rate of 0.0105 [this has a range going up to 6*10^-3 (daily) or 0.042 weekly rate]
+KcarryCap0 <- 120            #40 taken from Forbes2014 Figure 1 (40 voles/0.0625hectare)      [taking 3 quadrats]    
+lambda0 <- 1260             #180 (daily rate) multiplied by 7 to get weekly rate 
+gamma0 <- 1820               #260 (daily rate) multiplied by 7 to get weekly rate of 1820 [old value from Fenton2007 is 0.5]
+mu0 <- 0.0392               #5.6^10^-3 (daily rate) multiplied by 7 to get weekly rate ~~~ONLY NATURAL DEATH OF PARASITE NO HOST IMMUNE RESPONSE~~~
+k0 <- 1.31                  #range of 1.31 to 5.44
+
+#Varying the parameters
+br = b0*resource
+dr = d0/resource
+alphar = alpha0/resource
+betarPositive = beta0*resource
+betarNegative = beta0/resource
+betarNull = beta0+(resource*0)
+KcarryCapr = KcarryCap0*resource
+lambdar = lambda0*resource
+gammar = gamma0 #not effected
+mur = mu0*resource
+krPositive = k0*resource
+krNegative = k0/resource
+krNull = k0+(resource*0)
+
+```
+
+```{r Model - Berding 1987 + Forbes 2014 - Logistic Growth - Short - Host Demography Wins 9 panel (b, d, and KcarryCap)}
+#b, d, alpha, beta, lambda, mu, gamma, and k from Berding 1987
+#Carrying Capacity estimated from Forbes 2014
+
+#Creating empty vectors
+equilibriumH_NullB <- c()
+equilibriumP_NullB <- c()
+tmpNullB <- c()
+equilibriumH_PositiveB <- c()
+equilibriumP_PositiveB <- c()
+tmpPositiveB <- c()
+equilibriumH_NegativeB <- c()
+equilibriumP_NegativeB <- c()
+tmpNegativeB <- c()
+
+equilibriumH_NullD <- c()
+equilibriumP_NullD <- c()
+tmpNullD <- c()
+equilibriumH_PositiveD <- c()
+equilibriumP_PositiveD <- c()
+tmpPositiveD <- c()
+equilibriumH_NegativeD <- c()
+equilibriumP_NegativeD <- c()
+tmpNegativeD <- c()
+
+equilibriumH_NullKcarryCap <- c()
+equilibriumP_NullKcarryCap <- c()
+tmpNullKcarryCap <- c()
+equilibriumH_PositiveKcarryCap <- c()
+equilibriumP_PositiveKcarryCap <- c()
+tmpPositiveKcarryCap <- c()
+equilibriumH_NegativeKcarryCap <- c()
+equilibriumP_NegativeKcarryCap <- c()
+tmpNegativeKcarryCap <- c()
+
+for (i in 1:length(resource)){ #This will go through the loop for the length of the resource variable
+  xstart <- c(H=119, P=1) #Resets the initial parameter values
+
+  #Null effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullB[length(equilibriumH_NullB)+1] <- tmpNullB$H[length(tmpNullB$H)]
+  equilibriumP_NullB[length(equilibriumP_NullB)+1] <- tmpNullB$P[length(tmpNullB$P)]
+  
+  #Positive effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveB[length(equilibriumH_PositiveB)+1] <- tmpPositiveB$H[length(tmpPositiveB$H)]
+  equilibriumP_PositiveB[length(equilibriumP_PositiveB)+1] <- tmpPositiveB$P[length(tmpPositiveB$P)]
+  
+  #Negative effect of Resources (beta & k & b) 
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeB[length(equilibriumH_NegativeB)+1] <- tmpNegativeB$H[length(tmpNegativeB$H)]
+  equilibriumP_NegativeB[length(equilibriumP_NegativeB)+1] <- tmpNegativeB$P[length(tmpNegativeB$P)]
+
+  #########################################################################################################################################
+  
+  #Null effect of Resources (beta & k & d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullD[length(equilibriumH_NullD)+1] <- tmpNullD$H[length(tmpNullD$H)]
+  equilibriumP_NullD[length(equilibriumP_NullD)+1] <- tmpNullD$P[length(tmpNullD$P)]
+  
+  #Positive effect of Resources (beta & k & d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveD[length(equilibriumH_PositiveD)+1] <- tmpPositiveD$H[length(tmpPositiveD$H)]
+  equilibriumP_PositiveD[length(equilibriumP_PositiveD)+1] <- tmpPositiveD$P[length(tmpPositiveD$P)]
+  
+  #Negative effect of Resources (beta & k & d) 
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeD[length(equilibriumH_NegativeD)+1] <- tmpNegativeD$H[length(tmpNegativeD$H)]
+  equilibriumP_NegativeD[length(equilibriumP_NegativeD)+1] <- tmpNegativeD$P[length(tmpNegativeD$P)]
+
+#########################################################################################################################################
+  
+  #Null effect of Resources (beta & k & KcarryCap)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullKcarryCap[length(equilibriumH_NullKcarryCap)+1] <- tmpNullKcarryCap$H[length(tmpNullKcarryCap$H)]
+  equilibriumP_NullKcarryCap[length(equilibriumP_NullKcarryCap)+1] <- tmpNullKcarryCap$P[length(tmpNullKcarryCap$P)]
+  
+  #Positive effect of Resources (beta & k & KcarryCap)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveKcarryCap[length(equilibriumH_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$H[length(tmpPositiveKcarryCap$H)]
+  equilibriumP_PositiveKcarryCap[length(equilibriumP_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$P[length(tmpPositiveKcarryCap$P)]
+  
+  #Negative effect of Resources (beta & k & KcarryCap) 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeKcarryCap[length(equilibriumH_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$H[length(tmpNegativeKcarryCap$H)]
+  equilibriumP_NegativeKcarryCap[length(equilibriumP_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$P[length(tmpNegativeKcarryCap$P)]
+
+ 
+}
+
+hostEquilibriumB <- data.frame(R=resource,
+                              H_NegativeB=equilibriumH_NegativeB,
+                              H_NullB=equilibriumH_NullB,
+                              H_PositiveB=equilibriumH_PositiveB
+                              )
+
+parasiteEquilibriumB <- data.frame(R=resource,
+                                  P_NegativeB=equilibriumP_NegativeB,
+                                  P_NullB=equilibriumP_NullB,
+                                  P_PositiveB=equilibriumP_PositiveB
+                                  )
+
+pphEquilibriumB <- data.frame(R=resource,
+                             PpH_NegativeB=equilibriumP_NegativeB/equilibriumH_NegativeB,
+                             PpH_NullB=equilibriumP_NullB/equilibriumH_NullB,
+                             PpH_PositiveB=equilibriumP_PositiveB/equilibriumH_PositiveB
+                             )
+
+hostEquilibriumD <- data.frame(R=resource,
+                              H_NegativeD=equilibriumH_NegativeD,
+                              H_NullD=equilibriumH_NullD,
+                              H_PositiveD=equilibriumH_PositiveD
+                              )
+
+parasiteEquilibriumD <- data.frame(R=resource,
+                                  P_NegativeD=equilibriumP_NegativeD,
+                                  P_NullD=equilibriumP_NullD,
+                                  P_PositiveD=equilibriumP_PositiveD
+                                  )
+
+pphEquilibriumD <- data.frame(R=resource,
+                             PpH_NegativeD=equilibriumP_NegativeD/equilibriumH_NegativeD,
+                             PpH_NullD=equilibriumP_NullD/equilibriumH_NullD,
+                             PpH_PositiveD=equilibriumP_PositiveD/equilibriumH_PositiveD
+                             )
+
+hostEquilibriumKcarryCap <- data.frame(R=resource,
+                              H_NegativeKcarryCap=equilibriumH_NegativeKcarryCap,
+                              H_NullKcarryCap=equilibriumH_NullKcarryCap,
+                              H_PositiveKcarryCap=equilibriumH_PositiveKcarryCap
+                              )
+
+parasiteEquilibriumKcarryCap <- data.frame(R=resource,
+                               P_NegativeKcarryCap=equilibriumP_NegativeKcarryCap,
+                               P_NullKcarryCap=equilibriumP_NullKcarryCap,
+                               P_PositiveKcarryCap=equilibriumP_PositiveKcarryCap
+                               )
+
+pphEquilibriumKcarryCap <- data.frame(R=resource,
+                             PpH_NegativeKcarryCap=equilibriumP_NegativeKcarryCap/equilibriumH_NegativeKcarryCap,
+                             PpH_NullKcarryCap=equilibriumP_NullKcarryCap/equilibriumH_NullKcarryCap,
+                             PpH_PositiveKcarryCap=equilibriumP_PositiveKcarryCap/equilibriumH_PositiveKcarryCap
+                             )
+
+legendParameters <- data.frame(Effected_Parameter = c(replicate(21, "Negative"),
+                                                      replicate(21, "Null"),
+                                                      replicate(21, "Positive")
+                                                      )
+                               )
+
+
+#Graphing
+hostPointsB <- gather(hostEquilibriumB, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsB <- ggplot(data=hostPointsB, aes(x=R)) +
+  scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Host Birth Rate") + 
+  theme_bw()
+
+parasitePointsB <- gather(parasiteEquilibriumB, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesB <- ggplot(data=parasitePointsB, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  expand_limits(y=c(500,8500)) +
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  theme_bw()
+
+pphPointsB <- gather(pphEquilibriumB, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphB <- ggplot(data=pphPointsB, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  expand_limits(y=c(10,140)) + 
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effected by Resources") +
+  ggtitle("52 Weeks") + 
+  theme_bw()
+
+hostPointsD <- gather(hostEquilibriumD, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsD <- ggplot(data=hostPointsD, aes(x=R)) +  
+  scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Decreasing Host Mortality") + 
+  theme_bw()
+
+parasitePointsD <- gather(parasiteEquilibriumD, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesD <- ggplot(data=parasitePointsD, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  expand_limits(y=c(500,8500)) + 
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  theme_bw()
+
+pphPointsD <- gather(pphEquilibriumD, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphD <- ggplot(data=pphPointsD, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  expand_limits(y=c(10,140)) +   
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effect on Infection Parameters") +
+  ggtitle("52 Weeks") + 
+  theme_bw()
+
+hostPointsKcarryCap <- gather(hostEquilibriumKcarryCap, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsKcarryCap <- ggplot(data=hostPointsKcarryCap, aes(x=R)) +  
+  scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Carrying Capacity") + 
+  theme_bw()
+
+parasitePointsKcarryCap <- gather(parasiteEquilibriumKcarryCap, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesKcarryCap <- ggplot(data=parasitePointsKcarryCap, aes(x=R)) +   
+  scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  expand_limits(y=c(500,8500)) +
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  theme_bw()
+
+pphPointsKcarryCap <- gather(pphEquilibriumKcarryCap, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphKcarryCap <- ggplot(data=pphPointsKcarryCap, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  expand_limits(y=c(10,140)) +   
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effect on Infection Parameters") +
+  ggtitle("52 Weeks") + 
+  theme_bw()
+
+plotForLegend <- ggplot(data=pphPointsD, aes(x=R)) + 
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=legendParameters$Effected_Parameter)) +
+  labs(col="Effect on Infection Parameters") +
+  theme_bw()
+legendPlot <- cowplot::get_legend(plotForLegend)
+
+plot_grid(hostsB, pphB, parasitesB, hostsD, pphD, parasitesD, hostsKcarryCap, pphKcarryCap, parasitesKcarryCap, labels=NULL, ncol=3 ,nrow=3)
+```
+```{r Model - Berding 1987 + Forbes 2014 - Logistic Growth - Short - Host Demography Wins 6 panel (b and d)}
+#b, d, alpha, beta, lambda, mu, gamma, and k from Berding 1987
+#Carrying Capacity estimated from Forbes 2014
+
+#Creating empty vectors
+equilibriumH_NullB <- c()
+equilibriumP_NullB <- c()
+tmpNullB <- c()
+equilibriumH_PositiveB <- c()
+equilibriumP_PositiveB <- c()
+tmpPositiveB <- c()
+equilibriumH_NegativeB <- c()
+equilibriumP_NegativeB <- c()
+tmpNegativeB <- c()
+
+equilibriumH_NullD <- c()
+equilibriumP_NullD <- c()
+tmpNullD <- c()
+equilibriumH_PositiveD <- c()
+equilibriumP_PositiveD <- c()
+tmpPositiveD <- c()
+equilibriumH_NegativeD <- c()
+equilibriumP_NegativeD <- c()
+tmpNegativeD <- c()
+
+for (i in 1:length(resource)){ #This will go through the loop for the length of the resource variable
+  xstart <- c(H=119, P=1) #Resets the initial parameter values
+
+  #Null effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullB[length(equilibriumH_NullB)+1] <- tmpNullB$H[length(tmpNullB$H)]
+  equilibriumP_NullB[length(equilibriumP_NullB)+1] <- tmpNullB$P[length(tmpNullB$P)]
+  
+  #Positive effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveB[length(equilibriumH_PositiveB)+1] <- tmpPositiveB$H[length(tmpPositiveB$H)]
+  equilibriumP_PositiveB[length(equilibriumP_PositiveB)+1] <- tmpPositiveB$P[length(tmpPositiveB$P)]
+  
+  #Negative effect of Resources (beta & k & b) 
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeB[length(equilibriumH_NegativeB)+1] <- tmpNegativeB$H[length(tmpNegativeB$H)]
+  equilibriumP_NegativeB[length(equilibriumP_NegativeB)+1] <- tmpNegativeB$P[length(tmpNegativeB$P)]
+
+  #########################################################################################################################################
+  
+  #Null effect of Resources (beta & k & d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullD[length(equilibriumH_NullD)+1] <- tmpNullD$H[length(tmpNullD$H)]
+  equilibriumP_NullD[length(equilibriumP_NullD)+1] <- tmpNullD$P[length(tmpNullD$P)]
+  
+  #Positive effect of Resources (beta & k & d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveD[length(equilibriumH_PositiveD)+1] <- tmpPositiveD$H[length(tmpPositiveD$H)]
+  equilibriumP_PositiveD[length(equilibriumP_PositiveD)+1] <- tmpPositiveD$P[length(tmpPositiveD$P)]
+  
+  #Negative effect of Resources (beta & k & d) 
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeD[length(equilibriumH_NegativeD)+1] <- tmpNegativeD$H[length(tmpNegativeD$H)]
+  equilibriumP_NegativeD[length(equilibriumP_NegativeD)+1] <- tmpNegativeD$P[length(tmpNegativeD$P)]
+
+}
+
+hostEquilibriumB <- data.frame(R=resource,
+                              H_NegativeB=equilibriumH_NegativeB,
+                              H_NullB=equilibriumH_NullB,
+                              H_PositiveB=equilibriumH_PositiveB
+                              )
+
+parasiteEquilibriumB <- data.frame(R=resource,
+                                  P_NegativeB=equilibriumP_NegativeB,
+                                  P_NullB=equilibriumP_NullB,
+                                  P_PositiveB=equilibriumP_PositiveB
+                                  )
+
+pphEquilibriumB <- data.frame(R=resource,
+                             PpH_NegativeB=equilibriumP_NegativeB/equilibriumH_NegativeB,
+                             PpH_NullB=equilibriumP_NullB/equilibriumH_NullB,
+                             PpH_PositiveB=equilibriumP_PositiveB/equilibriumH_PositiveB
+                             )
+
+hostEquilibriumD <- data.frame(R=resource,
+                              H_NegativeD=equilibriumH_NegativeD,
+                              H_NullD=equilibriumH_NullD,
+                              H_PositiveD=equilibriumH_PositiveD
+                              )
+
+parasiteEquilibriumD <- data.frame(R=resource,
+                                  P_NegativeD=equilibriumP_NegativeD,
+                                  P_NullD=equilibriumP_NullD,
+                                  P_PositiveD=equilibriumP_PositiveD
+                                  )
+
+pphEquilibriumD <- data.frame(R=resource,
+                             PpH_NegativeD=equilibriumP_NegativeD/equilibriumH_NegativeD,
+                             PpH_NullD=equilibriumP_NullD/equilibriumH_NullD,
+                             PpH_PositiveD=equilibriumP_PositiveD/equilibriumH_PositiveD
+                             )
+
+legendParameters <- data.frame(Effected_Parameter = c(replicate(21, "Negative"),
+                                                      replicate(21, "Null"),
+                                                      replicate(21, "Positive")
+                                                      )
+                               )
+
+
+#Graphing
+hostPointsB <- gather(hostEquilibriumB, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsB <- ggplot(data=hostPointsB, aes(x=R)) +
+  scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Host Birth Rate") + 
+  theme_bw()
+
+parasitePointsB <- gather(parasiteEquilibriumB, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesB <- ggplot(data=parasitePointsB, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  expand_limits(y=c(500,8500)) +
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  theme_bw()
+
+pphPointsB <- gather(pphEquilibriumB, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphB <- ggplot(data=pphPointsB, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  expand_limits(y=c(10,140)) + 
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effected by Resources") +
+  ggtitle("52 Weeks") + 
+  theme_bw()
+
+hostPointsD <- gather(hostEquilibriumD, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsD <- ggplot(data=hostPointsD, aes(x=R)) +  
+  scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Decreasing Host Mortality") + 
+  theme_bw()
+
+parasitePointsD <- gather(parasiteEquilibriumD, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesD <- ggplot(data=parasitePointsD, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  expand_limits(y=c(500,8500)) +  
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  theme_bw()
+
+pphPointsD <- gather(pphEquilibriumD, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphD <- ggplot(data=pphPointsD, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  expand_limits(y=c(10,140)) +   
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effect on Infection Parameters") +
+  ggtitle("52 Weeks") + 
+  theme_bw()
+
+plotForLegend <- ggplot(data=pphPointsD, aes(x=R)) + 
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=legendParameters$Effected_Parameter)) +
+  labs(col="Effect on Infection Parameters") +
+  theme_bw()
+legendPlot <- cowplot::get_legend(plotForLegend)
+
+plot_grid(hostsB, pphB, parasitesB, hostsD, pphD, parasitesD, labels=NULL, ncol=3 ,nrow=2)
+```
+
+```{r - Finding Minimum and Maximum Values for each combination}
+#Hosts
+hostMinDiffBNeg <- (min(hostEquilibriumB$H_NegativeB)-hostEquilibriumB$H_NegativeB[1])/hostEquilibriumB$H_NegativeB[1]*100
+hostMaxDiffBNeg <- (max(hostEquilibriumB$H_NegativeB)-hostEquilibriumB$H_NegativeB[1])/hostEquilibriumB$H_NegativeB[1]*100
+
+hostMinBNull <- (min(hostEquilibriumB$H_NullB)-hostEquilibriumB$H_NullB[1])/hostEquilibriumB$H_NullB[1]*100
+hostMaxBNull <- (max(hostEquilibriumB$H_NullB)-hostEquilibriumB$H_NullB[1])/hostEquilibriumB$H_NullB[1]*100
+
+hostMinBPos <- (min(hostEquilibriumB$H_PositiveB)-hostEquilibriumB$H_PositiveB[1])/hostEquilibriumB$H_PositiveB[1]*100
+hostMaxBPos <- (max(hostEquilibriumB$H_PositiveB)-hostEquilibriumB$H_PositiveB[1])/hostEquilibriumB$H_PositiveB[1]*100
+
+hostMinDNeg <- (min(hostEquilibriumD$H_NegativeD)-hostEquilibriumD$H_NegativeD[1])/hostEquilibriumD$H_NegativeD[1]*100
+hostMaxDNeg <- (max(hostEquilibriumD$H_NegativeD)-hostEquilibriumD$H_NegativeD[1])/hostEquilibriumD$H_NegativeD[1]*100
+
+hostMinDNull <- (min(hostEquilibriumD$H_NullD)-hostEquilibriumD$H_NullD[1])/hostEquilibriumD$H_NullD[1]*100
+hostMaxDNull <- (max(hostEquilibriumD$H_NullD)-hostEquilibriumD$H_NullD[1])/hostEquilibriumD$H_NullD[1]*100
+
+hostMinDPos <- (min(hostEquilibriumD$H_PositiveD)-hostEquilibriumD$H_PositiveD[1])/hostEquilibriumD$H_PositiveD[1]*100
+hostMaxDPos <- (max(hostEquilibriumD$H_PositiveD)-hostEquilibriumD$H_PositiveD[1])/hostEquilibriumD$H_PositiveD[1]*100
+
+hostMinKcarryCapNeg <- (min(hostEquilibriumKcarryCap$H_NegativeKcarryCap)-hostEquilibriumKcarryCap$H_NegativeKcarryCap[1])/hostEquilibriumKcarryCap$H_NegativeKcarryCap[1]*100
+hostMaxKcarryCapNeg <- (max(hostEquilibriumKcarryCap$H_NegativeKcarryCap)-hostEquilibriumKcarryCap$H_NegativeKcarryCap[1])/hostEquilibriumKcarryCap$H_NegativeKcarryCap[1]*100
+
+hostMinKcarryCapNull <- (min(hostEquilibriumKcarryCap$H_NullKcarryCap)-hostEquilibriumKcarryCap$H_NullKcarryCap[1])/hostEquilibriumKcarryCap$H_NullKcarryCap[1]*100
+hostMaxKcarryCapNull <- (max(hostEquilibriumKcarryCap$H_NullKcarryCap)-hostEquilibriumKcarryCap$H_NullKcarryCap[1])/hostEquilibriumKcarryCap$H_NullKcarryCap[1]*100
+
+hostMinKcarryCapPos <- (min(hostEquilibriumKcarryCap$H_PositiveKcarryCap)-hostEquilibriumKcarryCap$H_PositiveKcarryCap[1])/hostEquilibriumKcarryCap$H_PositiveKcarryCap[1]*100
+hostMaxKcarryCapPos <- (max(hostEquilibriumKcarryCap$H_PositiveKcarryCap)-hostEquilibriumKcarryCap$H_PositiveKcarryCap[1])/hostEquilibriumKcarryCap$H_PositiveKcarryCap[1]*100
+
+######################################################################################################
+
+#PpH
+pphMinBNeg <- (min(pphEquilibriumB$PpH_NegativeB)-pphEquilibriumB$PpH_NegativeB[1])/pphEquilibriumB$PpH_NegativeB[1]*100
+pphMaxBNeg <- (max(pphEquilibriumB$PpH_NegativeB)-pphEquilibriumB$PpH_NegativeB[1])/pphEquilibriumB$PpH_NegativeB[1]*100
+
+pphMinBNull <- (min(pphEquilibriumB$PpH_NullB)-pphEquilibriumB$PpH_NullB[1])/pphEquilibriumB$PpH_NullB[1]*100
+pphMaxBNull <- (max(pphEquilibriumB$PpH_NullB)-pphEquilibriumB$PpH_NullB[1])/pphEquilibriumB$PpH_NullB[1]*100
+
+pphMinBPos <- (min(pphEquilibriumB$PpH_PositiveB)-pphEquilibriumB$PpH_PositiveB[1])/pphEquilibriumB$PpH_PositiveB[1]*100
+pphMaxBPos <- (max(pphEquilibriumB$PpH_PositiveB)-pphEquilibriumB$PpH_PositiveB[1])/pphEquilibriumB$PpH_PositiveB[1]*100
+
+pphMinDNeg <- (min(pphEquilibriumD$PpH_NegativeD)-pphEquilibriumD$PpH_NegativeD[1])/pphEquilibriumD$PpH_NegativeD[1]*100
+pphMaxDNeg <- (max(pphEquilibriumD$PpH_NegativeD)-pphEquilibriumD$PpH_NegativeD[1])/pphEquilibriumD$PpH_NegativeD[1]*100
+
+pphMinDNull <- (min(pphEquilibriumD$PpH_NullD)-pphEquilibriumD$PpH_NullD[1])/pphEquilibriumD$PpH_NullD[1]*100
+pphMaxDNull <- (max(pphEquilibriumD$PpH_NullD)-pphEquilibriumD$PpH_NullD[1])/pphEquilibriumD$PpH_NullD[1]*100
+
+pphMinDPos <- (min(pphEquilibriumD$PpH_PositiveD)-pphEquilibriumD$PpH_PositiveD[1])/pphEquilibriumD$PpH_PositiveD[1]*100
+pphMaxDPos <- (max(pphEquilibriumD$PpH_PositiveD)-pphEquilibriumD$PpH_PositiveD[1])/pphEquilibriumD$PpH_PositiveD[1]*100
+
+pphMinKcarryCapNeg <- (min(pphEquilibriumKcarryCap$PpH_NegativeKcarryCap)-pphEquilibriumKcarryCap$PpH_NegativeKcarryCap[1])/pphEquilibriumKcarryCap$PpH_NegativeKcarryCap[1]*100
+pphMaxKcarryCapNeg <- (max(pphEquilibriumKcarryCap$PpH_NegativeKcarryCap)-pphEquilibriumKcarryCap$PpH_NegativeKcarryCap[1])/pphEquilibriumKcarryCap$PpH_NegativeKcarryCap[1]*100
+
+pphMinKcarryCapNull <- (min(pphEquilibriumKcarryCap$PpH_NullKcarryCap)-pphEquilibriumKcarryCap$PpH_NullKcarryCap[1])/pphEquilibriumKcarryCap$PpH_NullKcarryCap[1]*100
+pphMaxKcarryCapNull <- (max(pphEquilibriumKcarryCap$PpH_NullKcarryCap)-pphEquilibriumKcarryCap$PpH_NullKcarryCap[1])/pphEquilibriumKcarryCap$PpH_NullKcarryCap[1]*100
+
+pphMinKcarryCapPos <- (min(pphEquilibriumKcarryCap$PpH_PositiveKcarryCap)-pphEquilibriumKcarryCap$PpH_PositiveKcarryCap[1])/pphEquilibriumKcarryCap$PpH_PositiveKcarryCap[1]*100
+pphMaxKcarryCapPos <- (max(pphEquilibriumKcarryCap$PpH_PositiveKcarryCap)-pphEquilibriumKcarryCap$PpH_PositiveKcarryCap[1])/pphEquilibriumKcarryCap$PpH_PositiveKcarryCap[1]*100
+
+######################################################################################################
+
+#Parasites
+parasiteMinBNeg <- min(parasiteEquilibriumB$P_NegativeB)
+parasiteMaxBNeg <- max(parasiteEquilibriumB$P_NegativeB)
+
+parasiteMinBNull <- min(parasiteEquilibriumB$P_NullB)
+parasiteMaxBNull <- max(parasiteEquilibriumB$P_NullB)
+
+parasiteMinBPos <- min(parasiteEquilibriumB$P_PositiveB)
+parasiteMaxBPos <- max(parasiteEquilibriumB$P_PositiveB)
+
+parasiteMinDNeg <- min(parasiteEquilibriumD$P_NegativeD)
+parasiteMaxDNeg <- max(parasiteEquilibriumD$P_NegativeD)
+
+parasiteMinDNull <- min(parasiteEquilibriumD$P_NullD)
+parasiteMaxDNull <- max(parasiteEquilibriumD$P_NullD)
+
+parasiteMinDPos <- min(parasiteEquilibriumD$P_PositiveD)
+parasiteMaxDPos <- max(parasiteEquilibriumD$P_PositiveD)
+
+parasiteMinKcarryCapNeg <- min(parasiteEquilibriumKcarryCap$P_NegativeKcarryCap)
+parasiteMaxKcarryCapNeg <- max(parasiteEquilibriumKcarryCap$P_NegativeKcarryCap)
+
+parasiteMinKcarryCapNull <- min(parasiteEquilibriumKcarryCap$P_NullKcarryCap)
+parasiteMaxKcarryCapNull <- max(parasiteEquilibriumKcarryCap$P_NullKcarryCap)
+
+parasiteMinKcarryCapPos <- min(parasiteEquilibriumKcarryCap$P_PositiveKcarryCap)
+parasiteMaxKcarryCapPos <- max(parasiteEquilibriumKcarryCap$P_PositiveKcarryCap)
+```
+
+```{r - Global Maximum for Hosts - Negative + KcarryCap}
+hostEquilibriumKcarryCap <- data.frame(R=resource,
+                              H_NegativeKcarryCap=equilibriumH_NegativeKcarryCap,
+                              H_NullKcarryCap=equilibriumH_NullKcarryCap,
+                              H_PositiveKcarryCap=equilibriumH_PositiveKcarryCap
+                              )
+
+parasiteEquilibriumKcarryCap <- data.frame(R=resource,
+                               P_NegativeKcarryCap=equilibriumP_NegativeKcarryCap,
+                               P_NullKcarryCap=equilibriumP_NullKcarryCap,
+                               P_PositiveKcarryCap=equilibriumP_PositiveKcarryCap
+                               )
+
+pphEquilibriumKcarryCap <- data.frame(R=resource,
+                             PpH_NegativeKcarryCap=equilibriumP_NegativeKcarryCap/equilibriumH_NegativeKcarryCap,
+                             PpH_NullKcarryCap=equilibriumP_NullKcarryCap/equilibriumH_NullKcarryCap,
+                             PpH_PositiveKcarryCap=equilibriumP_PositiveKcarryCap/equilibriumH_PositiveKcarryCap
+                             )
+
+legendParameters <- data.frame(Effected_Parameter = c(replicate(21, "Negative"),
+                                                      replicate(21, "Null"),
+                                                      replicate(21, "Positive")
+                                                      )
+                               )
+
+hosts <- ggplot(data=hostEquilibriumKcarryCap, aes(x=R)) +
+  scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  expand_limits(y=c(30,150)) +
+  geom_line(aes(y=H_NegativeKcarryCap), color="red", show.legend = FALSE, size = 1.2) +
+  #geom_line(aes(y=H_NullKcarryCap), color="green", show.legend = FALSE, size = 1.2) +
+  #geom_line(aes(y=H_PositiveKcarryCap), color="blue", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Carrying Capacity") +
+  theme_bw()
+
+parasites <- ggplot(data=parasiteEquilibriumKcarryCap, aes(x=R)) +
+  scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  expand_limits(y=c(500,8500)) +
+  geom_line(aes(y=P_NegativeKcarryCap), color="red", show.legend = FALSE, size = 1.2) +
+  #geom_line(aes(y=P_NullKcarryCap), color="green", show.legend = FALSE, size = 1.2) +
+  #geom_line(aes(y=P_PositiveKcarryCap), color="blue", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  theme_bw()
+
+pph <- ggplot(data=pphEquilibriumKcarryCap, aes(x=R)) +
+  scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  expand_limits(y=c(10,140)) +   
+  geom_line(aes(y=PpH_NegativeKcarryCap), color="red", show.legend = FALSE, size = 1.2) +
+  #geom_line(aes(y=PpH_NullKcarryCap), color="green", show.legend = FALSE, size = 1.2) +
+  #geom_line(aes(y=PpH_PositiveKcarryCap), color="blue", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host"))) +
+  ggtitle("52 Weeks") + 
+  theme_bw()
+
+plot_grid(hosts, pph, parasites, labels=NULL, ncol=3, nrow=1)
+```
+```{r - Global Maximum for Parasites - Positive + B}
+hostEquilibriumB <- data.frame(R=resource,
+                              H_NegativeB=equilibriumH_NegativeB,
+                              H_NullB=equilibriumH_NullB,
+                              H_PositiveB=equilibriumH_PositiveB
+                              )
+
+parasiteEquilibriumB <- data.frame(R=resource,
+                                  P_NegativeB=equilibriumP_NegativeB,
+                                  P_NullB=equilibriumP_NullB,
+                                  P_PositiveB=equilibriumP_PositiveB
+                                  )
+
+pphEquilibriumB <- data.frame(R=resource,
+                             PpH_NegativeB=equilibriumP_NegativeB/equilibriumH_NegativeB,
+                             PpH_NullB=equilibriumP_NullB/equilibriumH_NullB,
+                             PpH_PositiveB=equilibriumP_PositiveB/equilibriumH_PositiveB
+                             )
+
+legendParameters <- data.frame(Effected_Parameter = c(replicate(21, "Negative"),
+                                                      replicate(21, "Null"),
+                                                      replicate(21, "Positive")
+                                                      )
+                               )
+
+hosts <- ggplot(data=hostEquilibriumB, aes(x=R)) +
+  scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  expand_limits(y=c(30,150)) +
+  #geom_line(aes(y=H_NegativeB), color="red", show.legend = FALSE, size = 1.2) +
+  #geom_line(aes(y=H_NullB), color="green", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_PositiveB), color="blue", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Host Birth Rate") +
+  theme_bw()
+
+parasites <- ggplot(data=parasiteEquilibriumB, aes(x=R)) +
+  scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  expand_limits(y=c(500,8500)) +
+  #geom_line(aes(y=P_NegativeB), color="red", show.legend = FALSE, size = 1.2) +
+  #geom_line(aes(y=P_NullB), color="green", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=P_PositiveB), color="blue", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  theme_bw()
+
+pph <- ggplot(data=pphEquilibriumB, aes(x=R)) +
+  scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  expand_limits(y=c(10,140)) +   
+  #geom_line(aes(y=PpH_NegativeB), color="red", show.legend = FALSE, size = 1.2) +
+  #geom_line(aes(y=PpH_NullB), color="green", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_PositiveB), color="blue", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host"))) +
+  ggtitle("52 Weeks") + 
+  theme_bw()
+
+plot_grid(hosts, pph, parasites, labels=NULL, ncol=3, nrow=1)
+```
+
+
+```{r Model - Berding 1987 + Forbes 2014 - Logistic Growth - Short Negative vs Null vs Positive (beta, k, b)}
+#b, d, alpha, beta, lambda, mu, gamma, and k from Berding 1987
+#Carrying Capacity estimated from Forbes 2014
+
+#Creating empty vectors
+equilibriumH_NullB <- c()
+equilibriumP_NullB <- c()
+tmpNullB <- c()
+equilibriumH_PositiveB <- c()
+equilibriumP_PositiveB <- c()
+tmpPositiveB <- c()
+equilibriumH_NegativeB <- c()
+equilibriumP_NegativeB <- c()
+tmpNegativeB <- c()
+
+for (i in 1:length(resource)){ #This will go through the loop for the length of the resource variable
+  xstart <- c(H=119, P=1) #Resets the initial parameter values
+
+  #Null effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullB[length(equilibriumH_NullB)+1] <- tmpNullB$H[length(tmpNullB$H)]
+  equilibriumP_NullB[length(equilibriumP_NullB)+1] <- tmpNullB$P[length(tmpNullB$P)]
+  
+  #Positive effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveB[length(equilibriumH_PositiveB)+1] <- tmpPositiveB$H[length(tmpPositiveB$H)]
+  equilibriumP_PositiveB[length(equilibriumP_PositiveB)+1] <- tmpPositiveB$P[length(tmpPositiveB$P)]
+  
+  #Negative effect of Resources (beta & k & b) 
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeB[length(equilibriumH_NegativeB)+1] <- tmpNegativeB$H[length(tmpNegativeB$H)]
+  equilibriumP_NegativeB[length(equilibriumP_NegativeB)+1] <- tmpNegativeB$P[length(tmpNegativeB$P)]
+
+}
+
+hostEquilibriumB <- data.frame(R=resource,
+                              H_NegativeB=equilibriumH_NegativeB,
+                              H_NullB=equilibriumH_NullB,
+                              H_PositiveB=equilibriumH_PositiveB
+                              )
+
+parasiteEquilibriumB <- data.frame(R=resource,
+                                  P_NegativeB=equilibriumP_NegativeB,
+                                  P_NullB=equilibriumP_NullB,
+                                  P_PositiveB=equilibriumP_PositiveB
+                                  )
+
+pphEquilibriumB <- data.frame(R=resource,
+                             PpH_NegativeB=equilibriumP_NegativeB/equilibriumH_NegativeB,
+                             PpH_NullB=equilibriumP_NullB/equilibriumH_NullB,
+                             PpH_PositiveB=equilibriumP_PositiveB/equilibriumH_PositiveB
+                             )
+
+legendParameters <- data.frame(Effected_Parameter = c(replicate(21, "Negative"),
+                                                      replicate(21, "Null"),
+                                                      replicate(21, "Positive")
+                                                      )
+                               )
+
+
+#Graphing
+hostPointsB <- gather(hostEquilibriumB, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsB <- ggplot(data=hostPointsB, aes(x=R)) +
+  scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Host Birth Rate") + 
+  theme_bw()
+
+parasitePointsB <- gather(parasiteEquilibriumB, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesB <- ggplot(data=parasitePointsB, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  expand_limits(y=c(500,8500)) +
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle("26 Weeks") + 
+  theme_bw()
+
+pphPointsB <- gather(pphEquilibriumB, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphB <- ggplot(data=pphPointsB, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  expand_limits(y=c(10,140)) + 
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effected by Resources") +
+  ggtitle(" ") + 
+  theme_bw()
+
+plotForLegend <- ggplot(data=pphPointsD, aes(x=R)) + 
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=legendParameters$Effected_Parameter)) +
+  labs(col="Effect on Infection Parameters") +
+  theme_bw()
+legendPlot <- cowplot::get_legend(plotForLegend)
+
+plot_grid(hostsB, parasitesB, pphB, labels=NULL, ncol=3 ,nrow=1)
+```
+```{r Model - Berding 1987 + Forbes 2014 - Logistic Growth - Short Negative vs Null vs Positive (beta, k, d)}
+#b, d, alpha, beta, lambda, mu, gamma, and k from Berding 1987
+#Carrying Capacity estimated from Forbes 2014
+
+#Creating empty vectors
+equilibriumH_NullD <- c()
+equilibriumP_NullD <- c()
+tmpNullD <- c()
+equilibriumH_PositiveD <- c()
+equilibriumP_PositiveD <- c()
+tmpPositiveD <- c()
+equilibriumH_NegativeD <- c()
+equilibriumP_NegativeD <- c()
+tmpNegativeD <- c()
+
+for (i in 1:length(resource)){ #This will go through the loop for the length of the resource variable
+  xstart <- c(H=119, P=1) #Resets the initial parameter values
+
+  #Null effect of Resources (beta & k & d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullD[length(equilibriumH_NullD)+1] <- tmpNullD$H[length(tmpNullD$H)]
+  equilibriumP_NullD[length(equilibriumP_NullD)+1] <- tmpNullD$P[length(tmpNullD$P)]
+  
+  #Positiveered effect of Resources (beta & k & d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveD[length(equilibriumH_PositiveD)+1] <- tmpPositiveD$H[length(tmpPositiveD$H)]
+  equilibriumP_PositiveD[length(equilibriumP_PositiveD)+1] <- tmpPositiveD$P[length(tmpPositiveD$P)]
+  
+  #Negative effect of Resources (beta & k & d) 
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeD[length(equilibriumH_NegativeD)+1] <- tmpNegativeD$H[length(tmpNegativeD$H)]
+  equilibriumP_NegativeD[length(equilibriumP_NegativeD)+1] <- tmpNegativeD$P[length(tmpNegativeD$P)]
+
+}
+
+hostEquilibriumD <- data.frame(R=resource,
+                              H_NegativeD=equilibriumH_NegativeD,
+                              H_NullD=equilibriumH_NullD,
+                              H_PositiveD=equilibriumH_PositiveD
+                              )
+
+parasiteEquilibriumD <- data.frame(R=resource,
+                                  P_NegativeD=equilibriumP_NegativeD,
+                                  P_NullD=equilibriumP_NullD,
+                                  P_PositiveD=equilibriumP_PositiveD
+                                  )
+
+pphEquilibriumD <- data.frame(R=resource,
+                             PpH_NegativeD=equilibriumP_NegativeD/equilibriumH_NegativeD,
+                             PpH_NullD=equilibriumP_NullD/equilibriumH_NullD,
+                             PpH_PositiveD=equilibriumP_PositiveD/equilibriumH_PositiveD
+                             )
+
+legendParameters <- data.frame(Effected_Parameter = c(replicate(21, "Negative"),
+                                                      replicate(21, "Null"),
+                                                      replicate(21, "Positive")
+                                                      )
+                               )
+
+
+#Graphing
+hostPointsD <- gather(hostEquilibriumD, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsD <- ggplot(data=hostPointsD, aes(x=R)) +  
+  scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Decreasing Host Mortality") + 
+  theme_bw()
+
+parasitePointsD <- gather(parasiteEquilibriumD, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesD <- ggplot(data=parasitePointsD, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  expand_limits(y=c(500,8500)) +  
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle("26 Weeks") + 
+  theme_bw()
+
+pphPointsD <- gather(pphEquilibriumD, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphD <- ggplot(data=pphPointsD, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  expand_limits(y=c(10,140)) +   
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effect on Infection Parameters") +
+  ggtitle(" ") + 
+  theme_bw()
+
+plotForLegend <- ggplot(data=pphPoints, aes(x=R)) + 
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=legendParameters$Effected_Parameter)) +
+  labs(col="Effect on Infection Parameters") +
+  theme_bw()
+legendPlot <- cowplot::get_legend(plotForLegend)
+
+plot_grid(hostsD, parasitesD, pphD, legendPlot, labels=NULL, nrow=1)
+```
+```{r Model - Berding 1987 + Forbes 2014 - Logistic Growth - Short Negative vs Null vs Positive (beta, k, KcarryCap)}
+#b, d, alpha, beta, lambda, mu, gamma, and k from Berding 1987
+#Carrying Capacity estimated from Forbes 2014
+
+#Creating empty vectors
+equilibriumH_NullKcarryCap <- c()
+equilibriumP_NullKcarryCap <- c()
+tmpNullKcarryCap <- c()
+equilibriumH_PositiveKcarryCap <- c()
+equilibriumP_PositiveKcarryCap <- c()
+tmpPositiveKcarryCap <- c()
+equilibriumH_NegativeKcarryCap <- c()
+equilibriumP_NegativeKcarryCap <- c()
+tmpNegativeKcarryCap <- c()
+
+for (i in 1:length(resource)){ #This will go through the loop for the length of the resource variable
+  xstart <- c(H=119, P=1) #Resets the initial parameter values
+
+  #Null effect of Resources (beta & k & b)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullKcarryCap[length(equilibriumH_NullKcarryCap)+1] <- tmpNullKcarryCap$H[length(tmpNullKcarryCap$H)]
+  equilibriumP_NullKcarryCap[length(equilibriumP_NullKcarryCap)+1] <- tmpNullKcarryCap$P[length(tmpNullKcarryCap$P)]
+  
+  #Positiveered effect of Resources (beta & k & b)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveKcarryCap[length(equilibriumH_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$H[length(tmpPositiveKcarryCap$H)]
+  equilibriumP_PositiveKcarryCap[length(equilibriumP_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$P[length(tmpPositiveKcarryCap$P)]
+  
+  #Negative effect of Resources (beta & k & b) 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeKcarryCap[length(equilibriumH_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$H[length(tmpNegativeKcarryCap$H)]
+  equilibriumP_NegativeKcarryCap[length(equilibriumP_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$P[length(tmpNegativeKcarryCap$P)]
+
+}
+
+hostEquilibriumKcarryCap <- data.frame(R=resource,
+                              H_NegativeKcarryCap=equilibriumH_NegativeKcarryCap,
+                              H_NullKcarryCap=equilibriumH_NullKcarryCap,
+                              H_PositiveKcarryCap=equilibriumH_PositiveKcarryCap
+                              )
+
+parasiteEquilibriumKcarryCap <- data.frame(R=resource,
+                               P_NegativeKcarryCap=equilibriumP_NegativeKcarryCap,
+                               P_NullKcarryCap=equilibriumP_NullKcarryCap,
+                               P_PositiveKcarryCap=equilibriumP_PositiveKcarryCap
+                               )
+
+pphEquilibriumKcarryCap <- data.frame(R=resource,
+                             PpH_NegativeKcarryCap=equilibriumP_NegativeKcarryCap/equilibriumH_NegativeKcarryCap,
+                             PpH_NullKcarryCap=equilibriumP_NullKcarryCap/equilibriumH_NullKcarryCap,
+                             PpH_PositiveKcarryCap=equilibriumP_PositiveKcarryCap/equilibriumH_PositiveKcarryCap
+                             )
+
+legendParameters <- data.frame(Effected_Parameter = c(replicate(21, "Negative"),
+                                                      replicate(21, "Null"),
+                                                      replicate(21, "Positive")
+                                                      )
+                               )
+
+
+#Graphing
+hostPointsKcarryCap <- gather(hostEquilibriumKcarryCap, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsKcarryCap <- ggplot(data=hostPointsKcarryCap, aes(x=R)) +  
+  scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Carrying Capacity") + 
+  theme_bw()
+
+parasitePointsKcarryCap <- gather(parasiteEquilibriumKcarryCap, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesKcarryCap <- ggplot(data=parasitePointsKcarryCap, aes(x=R)) +   
+  scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  expand_limits(y=c(500,8500)) +
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle("26 Weeks") + 
+  theme_bw()
+
+pphPointsKcarryCap <- gather(pphEquilibriumKcarryCap, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphKcarryCap <- ggplot(data=pphPointsKcarryCap, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  expand_limits(y=c(10,140)) +   
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effect on Infection Parameters") +
+  ggtitle(" ") + 
+  theme_bw()
+
+plotForLegend <- ggplot(data=pphPointsKcarryCap, aes(x=R)) + 
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=legendParameters$Effected_Parameter)) +
+  labs(col="Effect on Infection Parameters") +
+  theme_bw()
+legendPlot <- cowplot::get_legend(plotForLegend)
+
+plot_grid(hostsKcarryCap, parasitesKcarryCap, pphKcarryCap, legendPlot, labels=NULL, nrow=1)
+```
+
+```{r - TEST DETER - Starting Information - xstart, seasons, time, and resource}
+#Setting resource availability
+resource <- seq(1, 2, by=0.05)
+
+xstart <- c(H=69, P=1)
+seasons <- (26*10) #One season is 26 weeks. So we use (26*x)
+time <- seq(1,seasons,by=1)
+
+#Parameter Values - Many are Monthly rates so we can convert those to Weekly Rates by multiplying with 12/52
+b0 <- 0.138               #monthly rate = 0.5980 then weekly rate = 0.5980*12/52 = 0.138
+d0 <- 0.0462              #monthly rate = 1/5 then weekly rate = 1/5*12/52 = 0.0462
+alpha0 <- 1.92*10^(-4)    #monthly rate = 8.33*10^(-4) then weekly rate = 8.33*10^(-4)*12/52 = 1.92*10^(-4)
+beta0 <- 1.2*10^(-8)      #monthly rate = 5.2*10^(-8) then weekly rate = 5.2*10^(-8)*12/52 = 1.2*10^(-8)
+KcarryCap0 <- 70         #value = 70 per Hectare (100x100m grid)
+lambda0 <- 20769          #monthly rate = 90000 [This seems ridiculously high] then weekly rate = 90000*12/52 = 20769
+gamma0 <- 0.0769          #monthly rate = 1/3 then weekly rate = 1/3*12/52 = 0.0769
+mu0 <- 0.0865             #monthly rate = 0.375 then weekly rate = 0.375*12/52 = 0.0865
+k0 <- 1                   #value = 1
+
+#Varying the parameters
+br = b0*resource
+dr = d0/resource
+alphar = alpha0/resource
+betarPositive = beta0*resource
+betarNegative = beta0/resource
+betarNull = beta0+(resource*0)
+KcarryCapr = KcarryCap0*resource
+lambdar = lambda0*resource
+gammar = gamma0 #not effected
+mur = mu0*resource
+krPositive = k0*resource
+krNegative = k0/resource
+krNull = k0+(resource*0)
+```
+
+```{r Model - TEST DETER - Logistic Growth - Short - Host Demography Wins 9 panel (b, d, and KcarryCap)}
+#b, d, alpha, beta, lambda, mu, gamma, KcarryCap and k from Deter 2008
+
+#Creating empty vectors
+equilibriumH_NullB <- c()
+equilibriumP_NullB <- c()
+tmpNullB <- c()
+equilibriumH_PositiveB <- c()
+equilibriumP_PositiveB <- c()
+tmpPositiveB <- c()
+equilibriumH_NegativeB <- c()
+equilibriumP_NegativeB <- c()
+tmpNegativeB <- c()
+
+equilibriumH_NullD <- c()
+equilibriumP_NullD <- c()
+tmpNullD <- c()
+equilibriumH_PositiveD <- c()
+equilibriumP_PositiveD <- c()
+tmpPositiveD <- c()
+equilibriumH_NegativeD <- c()
+equilibriumP_NegativeD <- c()
+tmpNegativeD <- c()
+
+equilibriumH_NullKcarryCap <- c()
+equilibriumP_NullKcarryCap <- c()
+tmpNullKcarryCap <- c()
+equilibriumH_PositiveKcarryCap <- c()
+equilibriumP_PositiveKcarryCap <- c()
+tmpPositiveKcarryCap <- c()
+equilibriumH_NegativeKcarryCap <- c()
+equilibriumP_NegativeKcarryCap <- c()
+tmpNegativeKcarryCap <- c()
+
+for (i in 1:length(resource)){ #This will go through the loop for the length of the resource variable
+  xstart <- c(H=69, P=1) #Resets the initial parameter values
+
+  #Null effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullB[length(equilibriumH_NullB)+1] <- tmpNullB$H[length(tmpNullB$H)]
+  equilibriumP_NullB[length(equilibriumP_NullB)+1] <- tmpNullB$P[length(tmpNullB$P)]
+  
+  #Positive effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveB[length(equilibriumH_PositiveB)+1] <- tmpPositiveB$H[length(tmpPositiveB$H)]
+  equilibriumP_PositiveB[length(equilibriumP_PositiveB)+1] <- tmpPositiveB$P[length(tmpPositiveB$P)]
+  
+  #Negative effect of Resources (beta & k & b) 
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeB[length(equilibriumH_NegativeB)+1] <- tmpNegativeB$H[length(tmpNegativeB$H)]
+  equilibriumP_NegativeB[length(equilibriumP_NegativeB)+1] <- tmpNegativeB$P[length(tmpNegativeB$P)]
+
+  #########################################################################################################################################
+  
+  #Null effect of Resources (beta & k & d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullD[length(equilibriumH_NullD)+1] <- tmpNullD$H[length(tmpNullD$H)]
+  equilibriumP_NullD[length(equilibriumP_NullD)+1] <- tmpNullD$P[length(tmpNullD$P)]
+  
+  #Positive effect of Resources (beta & k & d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveD[length(equilibriumH_PositiveD)+1] <- tmpPositiveD$H[length(tmpPositiveD$H)]
+  equilibriumP_PositiveD[length(equilibriumP_PositiveD)+1] <- tmpPositiveD$P[length(tmpPositiveD$P)]
+  
+  #Negative effect of Resources (beta & k & d) 
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeD[length(equilibriumH_NegativeD)+1] <- tmpNegativeD$H[length(tmpNegativeD$H)]
+  equilibriumP_NegativeD[length(equilibriumP_NegativeD)+1] <- tmpNegativeD$P[length(tmpNegativeD$P)]
+
+#########################################################################################################################################
+  
+  #Null effect of Resources (beta & k & KcarryCap)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullKcarryCap[length(equilibriumH_NullKcarryCap)+1] <- tmpNullKcarryCap$H[length(tmpNullKcarryCap$H)]
+  equilibriumP_NullKcarryCap[length(equilibriumP_NullKcarryCap)+1] <- tmpNullKcarryCap$P[length(tmpNullKcarryCap$P)]
+  
+  #Positive effect of Resources (beta & k & KcarryCap)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveKcarryCap[length(equilibriumH_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$H[length(tmpPositiveKcarryCap$H)]
+  equilibriumP_PositiveKcarryCap[length(equilibriumP_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$P[length(tmpPositiveKcarryCap$P)]
+  
+  #Negative effect of Resources (beta & k & KcarryCap) 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeKcarryCap[length(equilibriumH_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$H[length(tmpNegativeKcarryCap$H)]
+  equilibriumP_NegativeKcarryCap[length(equilibriumP_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$P[length(tmpNegativeKcarryCap$P)]
+
+ 
+}
+
+hostEquilibriumB <- data.frame(R=resource,
+                              H_NegativeB=equilibriumH_NegativeB,
+                              H_NullB=equilibriumH_NullB,
+                              H_PositiveB=equilibriumH_PositiveB
+                              )
+
+parasiteEquilibriumB <- data.frame(R=resource,
+                                  P_NegativeB=equilibriumP_NegativeB,
+                                  P_NullB=equilibriumP_NullB,
+                                  P_PositiveB=equilibriumP_PositiveB
+                                  )
+
+pphEquilibriumB <- data.frame(R=resource,
+                             PpH_NegativeB=equilibriumP_NegativeB/equilibriumH_NegativeB,
+                             PpH_NullB=equilibriumP_NullB/equilibriumH_NullB,
+                             PpH_PositiveB=equilibriumP_PositiveB/equilibriumH_PositiveB
+                             )
+
+hostEquilibriumD <- data.frame(R=resource,
+                              H_NegativeD=equilibriumH_NegativeD,
+                              H_NullD=equilibriumH_NullD,
+                              H_PositiveD=equilibriumH_PositiveD
+                              )
+
+parasiteEquilibriumD <- data.frame(R=resource,
+                                  P_NegativeD=equilibriumP_NegativeD,
+                                  P_NullD=equilibriumP_NullD,
+                                  P_PositiveD=equilibriumP_PositiveD
+                                  )
+
+pphEquilibriumD <- data.frame(R=resource,
+                             PpH_NegativeD=equilibriumP_NegativeD/equilibriumH_NegativeD,
+                             PpH_NullD=equilibriumP_NullD/equilibriumH_NullD,
+                             PpH_PositiveD=equilibriumP_PositiveD/equilibriumH_PositiveD
+                             )
+
+hostEquilibriumKcarryCap <- data.frame(R=resource,
+                              H_NegativeKcarryCap=equilibriumH_NegativeKcarryCap,
+                              H_NullKcarryCap=equilibriumH_NullKcarryCap,
+                              H_PositiveKcarryCap=equilibriumH_PositiveKcarryCap
+                              )
+
+parasiteEquilibriumKcarryCap <- data.frame(R=resource,
+                               P_NegativeKcarryCap=equilibriumP_NegativeKcarryCap,
+                               P_NullKcarryCap=equilibriumP_NullKcarryCap,
+                               P_PositiveKcarryCap=equilibriumP_PositiveKcarryCap
+                               )
+
+pphEquilibriumKcarryCap <- data.frame(R=resource,
+                             PpH_NegativeKcarryCap=equilibriumP_NegativeKcarryCap/equilibriumH_NegativeKcarryCap,
+                             PpH_NullKcarryCap=equilibriumP_NullKcarryCap/equilibriumH_NullKcarryCap,
+                             PpH_PositiveKcarryCap=equilibriumP_PositiveKcarryCap/equilibriumH_PositiveKcarryCap
+                             )
+
+legendParameters <- data.frame(Effected_Parameter = c(replicate(21, "Negative"),
+                                                      replicate(21, "Null"),
+                                                      replicate(21, "Positive")
+                                                      )
+                               )
+
+
+#Graphing
+hostPointsB <- gather(hostEquilibriumB, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsB <- ggplot(data=hostPointsB, aes(x=R)) +
+  #scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  #expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Host Birth Rate") + 
+  theme_bw()
+
+parasitePointsB <- gather(parasiteEquilibriumB, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesB <- ggplot(data=parasitePointsB, aes(x=R)) + 
+  #scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  #expand_limits(y=c(500,8500)) +
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  theme_bw()
+
+pphPointsB <- gather(pphEquilibriumB, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphB <- ggplot(data=pphPointsB, aes(x=R)) + 
+  #scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  #expand_limits(y=c(10,140)) + 
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effected by Resources") +
+  ggtitle("260 Weeks (10 seasons)") + 
+  theme_bw()
+
+hostPointsD <- gather(hostEquilibriumD, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsD <- ggplot(data=hostPointsD, aes(x=R)) +  
+  #scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  #expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Decreasing Host Mortality") + 
+  theme_bw()
+
+parasitePointsD <- gather(parasiteEquilibriumD, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesD <- ggplot(data=parasitePointsD, aes(x=R)) + 
+  #scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  #expand_limits(y=c(500,8500)) + 
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  theme_bw()
+
+pphPointsD <- gather(pphEquilibriumD, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphD <- ggplot(data=pphPointsD, aes(x=R)) + 
+  #scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  #expand_limits(y=c(10,140)) +   
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effect on Infection Parameters") +
+  ggtitle("260 Weeks (10 seasons)") + 
+  theme_bw()
+
+hostPointsKcarryCap <- gather(hostEquilibriumKcarryCap, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsKcarryCap <- ggplot(data=hostPointsKcarryCap, aes(x=R)) +  
+  #scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  #expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Carrying Capacity") + 
+  theme_bw()
+
+parasitePointsKcarryCap <- gather(parasiteEquilibriumKcarryCap, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesKcarryCap <- ggplot(data=parasitePointsKcarryCap, aes(x=R)) +   
+  #scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  #expand_limits(y=c(500,8500)) +
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  theme_bw()
+
+pphPointsKcarryCap <- gather(pphEquilibriumKcarryCap, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphKcarryCap <- ggplot(data=pphPointsKcarryCap, aes(x=R)) + 
+  #scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  #expand_limits(y=c(10,140)) +   
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effect on Infection Parameters") +
+  ggtitle("260 Weeks (10 seasons)") + 
+  theme_bw()
+
+plotForLegend <- ggplot(data=pphPointsD, aes(x=R)) + 
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=legendParameters$Effected_Parameter)) +
+  labs(col="Effect on Infection Parameters") +
+  theme_bw()
+legendPlot <- cowplot::get_legend(plotForLegend)
+
+plot_grid(hostsB, pphB, parasitesB, hostsD, pphD, parasitesD, hostsKcarryCap, pphKcarryCap, parasitesKcarryCap, labels=NULL, ncol=3 ,nrow=3)
+```
+
+```{r - TEST DETER MONTHLY - Starting Information - xstart, seasons, time, and resource}
+#Setting resource availability
+resource <- seq(1, 2, by=0.05)
+
+xstart <- c(H=69, P=1)
+monthsBreeding <- (12*5) #One year is 12 months
+time <- seq(1,monthsBreeding,by=1)
+
+#Parameter Values 
+b0 <- 0.5980              #monthly rate = 0.5980 
+d0 <- 1/5                 #monthly rate = 1/5
+alpha0 <- 8.33*10^(-4)    #monthly rate = 8.33*10^(-4)
+beta0 <- 5.2*10^(-8)      #monthly rate = 5.2*10^(-8)
+KcarryCap0 <- 70          #value = 70 per Hectare (100x100m grid)
+lambda0 <- 90000          #monthly rate = 90000
+gamma0 <- 1/3             #monthly rate = 1/3
+mu0 <- 0.375              #monthly rate = 0.375
+k0 <- 1                   #value = 1
+
+#Varying the parameters
+br = b0*resource
+dr = d0/resource
+alphar = alpha0/resource
+betarPositive = beta0*resource
+betarNegative = beta0/resource
+betarNull = beta0+(resource*0)
+KcarryCapr = KcarryCap0*resource
+lambdar = lambda0*resource
+gammar = gamma0 #not effected
+mur = mu0*resource
+krPositive = k0*resource
+krNegative = k0/resource
+krNull = k0+(resource*0)
+```
+
+```{r Model - TEST DETER MONTHLY - Logistic Growth - Short - Host Demography Wins 9 panel (b, d, and KcarryCap)}
+#b, d, alpha, beta, lambda, mu, gamma, KcarryCap and k from Deter 2008
+
+#Creating empty vectors
+equilibriumH_NullB <- c()
+equilibriumP_NullB <- c()
+tmpNullB <- c()
+equilibriumH_PositiveB <- c()
+equilibriumP_PositiveB <- c()
+tmpPositiveB <- c()
+equilibriumH_NegativeB <- c()
+equilibriumP_NegativeB <- c()
+tmpNegativeB <- c()
+
+equilibriumH_NullD <- c()
+equilibriumP_NullD <- c()
+tmpNullD <- c()
+equilibriumH_PositiveD <- c()
+equilibriumP_PositiveD <- c()
+tmpPositiveD <- c()
+equilibriumH_NegativeD <- c()
+equilibriumP_NegativeD <- c()
+tmpNegativeD <- c()
+
+equilibriumH_NullKcarryCap <- c()
+equilibriumP_NullKcarryCap <- c()
+tmpNullKcarryCap <- c()
+equilibriumH_PositiveKcarryCap <- c()
+equilibriumP_PositiveKcarryCap <- c()
+tmpPositiveKcarryCap <- c()
+equilibriumH_NegativeKcarryCap <- c()
+equilibriumP_NegativeKcarryCap <- c()
+tmpNegativeKcarryCap <- c()
+
+for (i in 1:length(resource)){ #This will go through the loop for the length of the resource variable
+  xstart <- c(H=69, P=1) #Resets the initial parameter values
+
+  #Null effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullB[length(equilibriumH_NullB)+1] <- tmpNullB$H[length(tmpNullB$H)]
+  equilibriumP_NullB[length(equilibriumP_NullB)+1] <- tmpNullB$P[length(tmpNullB$P)]
+  
+  #Positive effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveB[length(equilibriumH_PositiveB)+1] <- tmpPositiveB$H[length(tmpPositiveB$H)]
+  equilibriumP_PositiveB[length(equilibriumP_PositiveB)+1] <- tmpPositiveB$P[length(tmpPositiveB$P)]
+  
+  #Negative effect of Resources (beta & k & b) 
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeB[length(equilibriumH_NegativeB)+1] <- tmpNegativeB$H[length(tmpNegativeB$H)]
+  equilibriumP_NegativeB[length(equilibriumP_NegativeB)+1] <- tmpNegativeB$P[length(tmpNegativeB$P)]
+
+  #########################################################################################################################################
+  
+  #Null effect of Resources (beta & k & d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullD[length(equilibriumH_NullD)+1] <- tmpNullD$H[length(tmpNullD$H)]
+  equilibriumP_NullD[length(equilibriumP_NullD)+1] <- tmpNullD$P[length(tmpNullD$P)]
+  
+  #Positive effect of Resources (beta & k & d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveD[length(equilibriumH_PositiveD)+1] <- tmpPositiveD$H[length(tmpPositiveD$H)]
+  equilibriumP_PositiveD[length(equilibriumP_PositiveD)+1] <- tmpPositiveD$P[length(tmpPositiveD$P)]
+  
+  #Negative effect of Resources (beta & k & d) 
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeD[length(equilibriumH_NegativeD)+1] <- tmpNegativeD$H[length(tmpNegativeD$H)]
+  equilibriumP_NegativeD[length(equilibriumP_NegativeD)+1] <- tmpNegativeD$P[length(tmpNegativeD$P)]
+
+#########################################################################################################################################
+  
+  #Null effect of Resources (beta & k & KcarryCap)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullKcarryCap[length(equilibriumH_NullKcarryCap)+1] <- tmpNullKcarryCap$H[length(tmpNullKcarryCap$H)]
+  equilibriumP_NullKcarryCap[length(equilibriumP_NullKcarryCap)+1] <- tmpNullKcarryCap$P[length(tmpNullKcarryCap$P)]
+  
+  #Positive effect of Resources (beta & k & KcarryCap)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveKcarryCap[length(equilibriumH_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$H[length(tmpPositiveKcarryCap$H)]
+  equilibriumP_PositiveKcarryCap[length(equilibriumP_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$P[length(tmpPositiveKcarryCap$P)]
+  
+  #Negative effect of Resources (beta & k & KcarryCap) 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeKcarryCap[length(equilibriumH_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$H[length(tmpNegativeKcarryCap$H)]
+  equilibriumP_NegativeKcarryCap[length(equilibriumP_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$P[length(tmpNegativeKcarryCap$P)]
+
+ 
+}
+
+hostEquilibriumB <- data.frame(R=resource,
+                              H_NegativeB=equilibriumH_NegativeB,
+                              H_NullB=equilibriumH_NullB,
+                              H_PositiveB=equilibriumH_PositiveB
+                              )
+
+parasiteEquilibriumB <- data.frame(R=resource,
+                                  P_NegativeB=equilibriumP_NegativeB,
+                                  P_NullB=equilibriumP_NullB,
+                                  P_PositiveB=equilibriumP_PositiveB
+                                  )
+
+pphEquilibriumB <- data.frame(R=resource,
+                             PpH_NegativeB=equilibriumP_NegativeB/equilibriumH_NegativeB,
+                             PpH_NullB=equilibriumP_NullB/equilibriumH_NullB,
+                             PpH_PositiveB=equilibriumP_PositiveB/equilibriumH_PositiveB
+                             )
+
+hostEquilibriumD <- data.frame(R=resource,
+                              H_NegativeD=equilibriumH_NegativeD,
+                              H_NullD=equilibriumH_NullD,
+                              H_PositiveD=equilibriumH_PositiveD
+                              )
+
+parasiteEquilibriumD <- data.frame(R=resource,
+                                  P_NegativeD=equilibriumP_NegativeD,
+                                  P_NullD=equilibriumP_NullD,
+                                  P_PositiveD=equilibriumP_PositiveD
+                                  )
+
+pphEquilibriumD <- data.frame(R=resource,
+                             PpH_NegativeD=equilibriumP_NegativeD/equilibriumH_NegativeD,
+                             PpH_NullD=equilibriumP_NullD/equilibriumH_NullD,
+                             PpH_PositiveD=equilibriumP_PositiveD/equilibriumH_PositiveD
+                             )
+
+hostEquilibriumKcarryCap <- data.frame(R=resource,
+                              H_NegativeKcarryCap=equilibriumH_NegativeKcarryCap,
+                              H_NullKcarryCap=equilibriumH_NullKcarryCap,
+                              H_PositiveKcarryCap=equilibriumH_PositiveKcarryCap
+                              )
+
+parasiteEquilibriumKcarryCap <- data.frame(R=resource,
+                               P_NegativeKcarryCap=equilibriumP_NegativeKcarryCap,
+                               P_NullKcarryCap=equilibriumP_NullKcarryCap,
+                               P_PositiveKcarryCap=equilibriumP_PositiveKcarryCap
+                               )
+
+pphEquilibriumKcarryCap <- data.frame(R=resource,
+                             PpH_NegativeKcarryCap=equilibriumP_NegativeKcarryCap/equilibriumH_NegativeKcarryCap,
+                             PpH_NullKcarryCap=equilibriumP_NullKcarryCap/equilibriumH_NullKcarryCap,
+                             PpH_PositiveKcarryCap=equilibriumP_PositiveKcarryCap/equilibriumH_PositiveKcarryCap
+                             )
+
+legendParameters <- data.frame(Effected_Parameter = c(replicate(21, "Negative"),
+                                                      replicate(21, "Null"),
+                                                      replicate(21, "Positive")
+                                                      )
+                               )
+
+
+#Graphing
+hostPointsB <- gather(hostEquilibriumB, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsB <- ggplot(data=hostPointsB, aes(x=R)) +
+  #scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  #expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Host Birth Rate") + 
+  theme_bw()
+
+parasitePointsB <- gather(parasiteEquilibriumB, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesB <- ggplot(data=parasitePointsB, aes(x=R)) + 
+  #scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  #expand_limits(y=c(500,8500)) +
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  theme_bw()
+
+pphPointsB <- gather(pphEquilibriumB, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphB <- ggplot(data=pphPointsB, aes(x=R)) + 
+  #scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  #expand_limits(y=c(10,140)) + 
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effected by Resources") +
+  ggtitle("60 Months (10 seasons)") + 
+  theme_bw()
+
+hostPointsD <- gather(hostEquilibriumD, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsD <- ggplot(data=hostPointsD, aes(x=R)) +  
+  #scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  #expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Decreasing Host Mortality") + 
+  theme_bw()
+
+parasitePointsD <- gather(parasiteEquilibriumD, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesD <- ggplot(data=parasitePointsD, aes(x=R)) + 
+  #scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  #expand_limits(y=c(500,8500)) + 
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  theme_bw()
+
+pphPointsD <- gather(pphEquilibriumD, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphD <- ggplot(data=pphPointsD, aes(x=R)) + 
+  #scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  #expand_limits(y=c(10,140)) +   
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effect on Infection Parameters") +
+  ggtitle("60 Months (10 seasons)") + 
+  theme_bw()
+
+hostPointsKcarryCap <- gather(hostEquilibriumKcarryCap, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsKcarryCap <- ggplot(data=hostPointsKcarryCap, aes(x=R)) +  
+  #scale_y_continuous(breaks=seq(30, 150, by=20)) +
+  #expand_limits(y=c(30,150)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Carrying Capacity") + 
+  theme_bw()
+
+parasitePointsKcarryCap <- gather(parasiteEquilibriumKcarryCap, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesKcarryCap <- ggplot(data=parasitePointsKcarryCap, aes(x=R)) +   
+  #scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  #expand_limits(y=c(500,8500)) +
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  theme_bw()
+
+pphPointsKcarryCap <- gather(pphEquilibriumKcarryCap, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphKcarryCap <- ggplot(data=pphPointsKcarryCap, aes(x=R)) + 
+  #scale_y_continuous(breaks=seq(10, 140, by=10)) +
+  #expand_limits(y=c(10,140)) +   
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effect on Infection Parameters") +
+  ggtitle("60 Months (10 seasons)") + 
+  theme_bw()
+
+plotForLegend <- ggplot(data=pphPointsD, aes(x=R)) + 
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=legendParameters$Effected_Parameter)) +
+  labs(col="Effect on Infection Parameters") +
+  theme_bw()
+legendPlot <- cowplot::get_legend(plotForLegend)
+
+plot_grid(hostsB, pphB, parasitesB, hostsD, pphD, parasitesD, hostsKcarryCap, pphKcarryCap, parasitesKcarryCap, labels=NULL, ncol=3 ,nrow=3)
+```
+
+```{r - USE ME - DETER + Berding MONTHLY - Starting Information - xstart, seasons, time, and resource}
+#Setting resource availability
+resource <- seq(1, 2, by=0.05)
+
+xstart <- c(H=69, P=1)
+monthsBreeding <- (12*5) #One year is 12 months
+time <- seq(1,monthsBreeding,by=1)
+
+#Parameter Values 
+b0 <- 0.5980              #monthly rate = 0.5980 
+d0 <- 1/5                 #monthly rate = 1/5
+alpha0 <- 7.94*10^(-3)    #monthly rate = 7.94*10^(-3) calculated from avg_daily_rate*365/12 [FROM BERDING]
+beta0 <- 5.2*10^(-8)      #monthly rate = 5.2*10^(-8)
+KcarryCap0 <- 70          #value = 70 per Hectare (100x100m grid)
+lambda0 <- 90000          #monthly rate = 90000
+gamma0 <- 1/3             #monthly rate = 1/3
+mu0 <- 0.375              #monthly rate = 0.375
+k0 <- 1                   #value = 1
+
+#Varying the parameters
+br = b0*resource
+dr = d0/resource
+alphar = alpha0/resource
+betarPositive = beta0*resource
+betarNegative = beta0/resource
+betarNull = beta0+(resource*0)
+KcarryCapr = KcarryCap0*resource
+lambdar = lambda0*resource
+gammar = gamma0 #not effected
+murPositive = mu0*resource
+murNegative = mu0/resource
+krPositive = k0*resource
+krNegative = k0/resource
+krNull = k0+(resource*0)
+```
+
+```{r Model - DETER + Berding MONTHLY - Logistic Growth - Host Demography Wins 9 panel (b, d, and KcarryCap)}
+#b, d, beta, lambda, mu, gamma, KcarryCap and k from Deter 2008
+#Alpha from Berding 1987
+
+#Creating empty vectors
+equilibriumH_NullB <- c()
+equilibriumP_NullB <- c()
+tmpNullB <- c()
+equilibriumH_PositiveB <- c()
+equilibriumP_PositiveB <- c()
+tmpPositiveB <- c()
+equilibriumH_NegativeB <- c()
+equilibriumP_NegativeB <- c()
+tmpNegativeB <- c()
+
+equilibriumH_NullD <- c()
+equilibriumP_NullD <- c()
+tmpNullD <- c()
+equilibriumH_PositiveD <- c()
+equilibriumP_PositiveD <- c()
+tmpPositiveD <- c()
+equilibriumH_NegativeD <- c()
+equilibriumP_NegativeD <- c()
+tmpNegativeD <- c()
+
+equilibriumH_NullKcarryCap <- c()
+equilibriumP_NullKcarryCap <- c()
+tmpNullKcarryCap <- c()
+equilibriumH_PositiveKcarryCap <- c()
+equilibriumP_PositiveKcarryCap <- c()
+tmpPositiveKcarryCap <- c()
+equilibriumH_NegativeKcarryCap <- c()
+equilibriumP_NegativeKcarryCap <- c()
+tmpNegativeKcarryCap <- c()
+
+for (i in 1:length(resource)){ #This will go through the loop for the length of the resource variable
+  xstart <- c(H=69, P=1) #Resets the initial parameter values
+
+  #Null effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullB[length(equilibriumH_NullB)+1] <- tmpNullB$H[length(tmpNullB$H)]
+  equilibriumP_NullB[length(equilibriumP_NullB)+1] <- tmpNullB$P[length(tmpNullB$P)]
+  
+  #Positive effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveB[length(equilibriumH_PositiveB)+1] <- tmpPositiveB$H[length(tmpPositiveB$H)]
+  equilibriumP_PositiveB[length(equilibriumP_PositiveB)+1] <- tmpPositiveB$P[length(tmpPositiveB$P)]
+  
+  #Negative effect of Resources (beta & k & b) 
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeB[length(equilibriumH_NegativeB)+1] <- tmpNegativeB$H[length(tmpNegativeB$H)]
+  equilibriumP_NegativeB[length(equilibriumP_NegativeB)+1] <- tmpNegativeB$P[length(tmpNegativeB$P)]
+
+  #########################################################################################################################################
+  
+  #Null effect of Resources (beta & k & d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullD[length(equilibriumH_NullD)+1] <- tmpNullD$H[length(tmpNullD$H)]
+  equilibriumP_NullD[length(equilibriumP_NullD)+1] <- tmpNullD$P[length(tmpNullD$P)]
+  
+  #Positive effect of Resources (beta & k & d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveD[length(equilibriumH_PositiveD)+1] <- tmpPositiveD$H[length(tmpPositiveD$H)]
+  equilibriumP_PositiveD[length(equilibriumP_PositiveD)+1] <- tmpPositiveD$P[length(tmpPositiveD$P)]
+  
+  #Negative effect of Resources (beta & k & d) 
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeD[length(equilibriumH_NegativeD)+1] <- tmpNegativeD$H[length(tmpNegativeD$H)]
+  equilibriumP_NegativeD[length(equilibriumP_NegativeD)+1] <- tmpNegativeD$P[length(tmpNegativeD$P)]
+
+#########################################################################################################################################
+  
+  #Null effect of Resources (beta & k & KcarryCap)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullKcarryCap[length(equilibriumH_NullKcarryCap)+1] <- tmpNullKcarryCap$H[length(tmpNullKcarryCap$H)]
+  equilibriumP_NullKcarryCap[length(equilibriumP_NullKcarryCap)+1] <- tmpNullKcarryCap$P[length(tmpNullKcarryCap$P)]
+  
+  #Positive effect of Resources (beta & k & KcarryCap)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveKcarryCap[length(equilibriumH_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$H[length(tmpPositiveKcarryCap$H)]
+  equilibriumP_PositiveKcarryCap[length(equilibriumP_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$P[length(tmpPositiveKcarryCap$P)]
+  
+  #Negative effect of Resources (beta & k & KcarryCap) 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeKcarryCap[length(equilibriumH_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$H[length(tmpNegativeKcarryCap$H)]
+  equilibriumP_NegativeKcarryCap[length(equilibriumP_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$P[length(tmpNegativeKcarryCap$P)]
+
+ 
+}
+
+hostEquilibriumB <- data.frame(R=resource,
+                              H_NegativeB=equilibriumH_NegativeB,
+                              H_NullB=equilibriumH_NullB,
+                              H_PositiveB=equilibriumH_PositiveB
+                              )
+
+parasiteEquilibriumB <- data.frame(R=resource,
+                                  P_NegativeB=equilibriumP_NegativeB,
+                                  P_NullB=equilibriumP_NullB,
+                                  P_PositiveB=equilibriumP_PositiveB
+                                  )
+
+pphEquilibriumB <- data.frame(R=resource,
+                             PpH_NegativeB=equilibriumP_NegativeB/equilibriumH_NegativeB,
+                             PpH_NullB=equilibriumP_NullB/equilibriumH_NullB,
+                             PpH_PositiveB=equilibriumP_PositiveB/equilibriumH_PositiveB
+                             )
+
+hostEquilibriumD <- data.frame(R=resource,
+                              H_NegativeD=equilibriumH_NegativeD,
+                              H_NullD=equilibriumH_NullD,
+                              H_PositiveD=equilibriumH_PositiveD
+                              )
+
+parasiteEquilibriumD <- data.frame(R=resource,
+                                  P_NegativeD=equilibriumP_NegativeD,
+                                  P_NullD=equilibriumP_NullD,
+                                  P_PositiveD=equilibriumP_PositiveD
+                                  )
+
+pphEquilibriumD <- data.frame(R=resource,
+                             PpH_NegativeD=equilibriumP_NegativeD/equilibriumH_NegativeD,
+                             PpH_NullD=equilibriumP_NullD/equilibriumH_NullD,
+                             PpH_PositiveD=equilibriumP_PositiveD/equilibriumH_PositiveD
+                             )
+
+hostEquilibriumKcarryCap <- data.frame(R=resource,
+                              H_NegativeKcarryCap=equilibriumH_NegativeKcarryCap,
+                              H_NullKcarryCap=equilibriumH_NullKcarryCap,
+                              H_PositiveKcarryCap=equilibriumH_PositiveKcarryCap
+                              )
+
+parasiteEquilibriumKcarryCap <- data.frame(R=resource,
+                               P_NegativeKcarryCap=equilibriumP_NegativeKcarryCap,
+                               P_NullKcarryCap=equilibriumP_NullKcarryCap,
+                               P_PositiveKcarryCap=equilibriumP_PositiveKcarryCap
+                               )
+
+pphEquilibriumKcarryCap <- data.frame(R=resource,
+                             PpH_NegativeKcarryCap=equilibriumP_NegativeKcarryCap/equilibriumH_NegativeKcarryCap,
+                             PpH_NullKcarryCap=equilibriumP_NullKcarryCap/equilibriumH_NullKcarryCap,
+                             PpH_PositiveKcarryCap=equilibriumP_PositiveKcarryCap/equilibriumH_PositiveKcarryCap
+                             )
+
+legendParameters <- data.frame(Effected_Parameter = c(replicate(21, "Negative"),
+                                                      replicate(21, "Null"),
+                                                      replicate(21, "Positive")
+                                                      )
+                               )
+
+
+
+
+#Graphing
+colors <- c("H_NegativeB" = "red", "H_NullB" = "black", "H_PositiveB" = "blue")
+hostPointsB <- gather(hostEquilibriumB, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsB <- ggplot(data=hostPointsB, aes(x=R)) +
+  scale_y_continuous(breaks=seq(25, 125, by=25)) +
+  expand_limits(y=c(25,125)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Host Birth Rate") + 
+  scale_color_manual(values=colors) +
+  theme_bw()
+
+colors <- c("P_NegativeB" = "red", "P_NullB" = "black", "P_PositiveB" = "blue")
+parasitePointsB <- gather(parasiteEquilibriumB, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesB <- ggplot(data=parasitePointsB, aes(x=R)) + 
+  #scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  #expand_limits(y=c(500,8500)) +
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  scale_color_manual(values=colors) +
+  theme_bw()
+
+colors <- c("PpH_NegativeB" = "red", "PpH_NullB" = "black", "PpH_PositiveB" = "blue")
+pphPointsB <- gather(pphEquilibriumB, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphB <- ggplot(data=pphPointsB, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(0, 50, by=10)) +
+  expand_limits(y=c(0,50)) +   
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effected by Resources") +
+  ggtitle("60 Months (10 seasons)") + 
+  scale_color_manual(values=colors) +
+  theme_bw()
+
+colors <- c("H_NegativeD" = "red", "H_NullD" = "black", "H_PositiveD" = "blue")
+hostPointsD <- gather(hostEquilibriumD, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsD <- ggplot(data=hostPointsD, aes(x=R)) +  
+  scale_y_continuous(breaks=seq(25, 125, by=25)) +
+  expand_limits(y=c(25,125)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Decreasing Host Mortality") + 
+  scale_color_manual(values=colors) +
+  theme_bw()
+
+colors <- c("P_NegativeD" = "red", "P_NullD" = "black", "P_PositiveD" = "blue")
+parasitePointsD <- gather(parasiteEquilibriumD, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesD <- ggplot(data=parasitePointsD, aes(x=R)) + 
+  #scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  #expand_limits(y=c(500,8500)) + 
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  scale_color_manual(values=colors) +
+  theme_bw()
+
+colors <- c("PpH_NegativeD" = "red", "PpH_NullD" = "black", "PpH_PositiveD" = "blue")
+pphPointsD <- gather(pphEquilibriumD, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphD <- ggplot(data=pphPointsD, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(0, 50, by=10)) +
+  expand_limits(y=c(0,50)) +   
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effect on Infection Parameters") +
+  ggtitle("60 Months (10 seasons)") + 
+  scale_color_manual(values=colors) +
+  theme_bw()
+
+colors <- c("H_NegativeKcarryCap" = "red", "H_NullKcarryCap" = "black", "H_PositiveKcarryCap" = "blue")
+hostPointsKcarryCap <- gather(hostEquilibriumKcarryCap, key="Parameter_Descriptions", value="Host_Population", -R)
+hostsKcarryCap <- ggplot(data=hostPointsKcarryCap, aes(x=R)) +  
+  scale_y_continuous(breaks=seq(25, 125, by=25)) +
+  expand_limits(y=c(25,125)) +
+  geom_line(aes(y=Host_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Carrying Capacity") + 
+  scale_color_manual(values=colors) +
+  theme_bw()
+
+colors <- c("P_NegativeKcarryCap" = "red", "P_NullKcarryCap" = "black", "P_PositiveKcarryCap" = "blue")
+parasitePointsKcarryCap <- gather(parasiteEquilibriumKcarryCap, key="Parameter_Descriptions", value="Parasite_Population", -R)
+parasitesKcarryCap <- ggplot(data=parasitePointsKcarryCap, aes(x=R)) +   
+  #scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+  #expand_limits(y=c(500,8500)) +
+  geom_line(aes(y=Parasite_Population, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Population"))) +
+  ggtitle(" ") + 
+  scale_color_manual(values=colors) +
+  theme_bw()
+
+colors <- c("PpH_NegativeKcarryCap" = "red", "PpH_NullKcarryCap" = "black", "PpH_PositiveKcarryCap" = "blue")
+pphPointsKcarryCap <- gather(pphEquilibriumKcarryCap, key="Parameter_Descriptions", value="Parasites_per_Host", -R)
+pphKcarryCap <- ggplot(data=pphPointsKcarryCap, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(0, 50, by=10)) +
+  expand_limits(y=c(0,50)) +   
+  geom_line(aes(y=Parasites_per_Host, group=Parameter_Descriptions, col=Parameter_Descriptions), show.legend=FALSE, size = 1.2) + 
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effect on Infection Parameters") +
+  ggtitle("60 Months (10 seasons)") + 
+  scale_color_manual(values=colors) +
+  theme_bw()
+
+plot_grid(hostsB, pphB, parasitesB, hostsD, pphD, parasitesD, hostsKcarryCap, pphKcarryCap, parasitesKcarryCap, labels=NULL, ncol=3 ,nrow=3)
+
+plot_grid(hostsB, pphB, hostsD, pphD, hostsKcarryCap, pphKcarryCap, labels=NULL, ncol=2 ,nrow=3)
+```
+
+```{r Model - USE ME - DETER + Berding MONTHLY - Logistic Growth - Host Demography Wins 9 panel (b, d, and KcarryCap)}
+#b, d, beta, lambda, mu, gamma, KcarryCap and k from Deter 2008
+#Alpha from Berding 1987
+
+#Creating empty vectors
+equilibriumH_NullB <- c()
+equilibriumP_NullB <- c()
+tmpNullB <- c()
+equilibriumH_PositiveB <- c()
+equilibriumP_PositiveB <- c()
+tmpPositiveB <- c()
+equilibriumH_NegativeB <- c()
+equilibriumP_NegativeB <- c()
+tmpNegativeB <- c()
+
+equilibriumH_NullD <- c()
+equilibriumP_NullD <- c()
+tmpNullD <- c()
+equilibriumH_PositiveD <- c()
+equilibriumP_PositiveD <- c()
+tmpPositiveD <- c()
+equilibriumH_NegativeD <- c()
+equilibriumP_NegativeD <- c()
+tmpNegativeD <- c()
+
+equilibriumH_NullKcarryCap <- c()
+equilibriumP_NullKcarryCap <- c()
+tmpNullKcarryCap <- c()
+equilibriumH_PositiveKcarryCap <- c()
+equilibriumP_PositiveKcarryCap <- c()
+tmpPositiveKcarryCap <- c()
+equilibriumH_NegativeKcarryCap <- c()
+equilibriumP_NegativeKcarryCap <- c()
+tmpNegativeKcarryCap <- c()
+
+for (i in 1:length(resource)){ #This will go through the loop for the length of the resource variable
+  xstart <- c(H=69, P=1) #Resets the initial parameter values
+
+  #Null effect of Resources (beta & k)  with Positive effect (b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullB[length(equilibriumH_NullB)+1] <- tmpNullB$H[length(tmpNullB$H)]
+  equilibriumP_NullB[length(equilibriumP_NullB)+1] <- tmpNullB$P[length(tmpNullB$P)]
+  
+  #Positive effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveB[length(equilibriumH_PositiveB)+1] <- tmpPositiveB$H[length(tmpPositiveB$H)]
+  equilibriumP_PositiveB[length(equilibriumP_PositiveB)+1] <- tmpPositiveB$P[length(tmpPositiveB$P)]
+  
+  #Negative effect of Resources (beta & k) with Positive effect (b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeB[length(equilibriumH_NegativeB)+1] <- tmpNegativeB$H[length(tmpNegativeB$H)]
+  equilibriumP_NegativeB[length(equilibriumP_NegativeB)+1] <- tmpNegativeB$P[length(tmpNegativeB$P)]
+
+  #########################################################################################################################################
+  
+  #Null effect of Resources (beta & k) with Negative effect (d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullD[length(equilibriumH_NullD)+1] <- tmpNullD$H[length(tmpNullD$H)]
+  equilibriumP_NullD[length(equilibriumP_NullD)+1] <- tmpNullD$P[length(tmpNullD$P)]
+  
+  #Positive effect of Resources (beta & k) with Negative effect (d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveD[length(equilibriumH_PositiveD)+1] <- tmpPositiveD$H[length(tmpPositiveD$H)]
+  equilibriumP_PositiveD[length(equilibriumP_PositiveD)+1] <- tmpPositiveD$P[length(tmpPositiveD$P)]
+  
+  #Negative effect of Resources (beta & k & d) 
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeD[length(equilibriumH_NegativeD)+1] <- tmpNegativeD$H[length(tmpNegativeD$H)]
+  equilibriumP_NegativeD[length(equilibriumP_NegativeD)+1] <- tmpNegativeD$P[length(tmpNegativeD$P)]
+
+#########################################################################################################################################
+  
+  #Null effect of Resources (beta & k) with Positive effect (KcarryCap)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullKcarryCap[length(equilibriumH_NullKcarryCap)+1] <- tmpNullKcarryCap$H[length(tmpNullKcarryCap$H)]
+  equilibriumP_NullKcarryCap[length(equilibriumP_NullKcarryCap)+1] <- tmpNullKcarryCap$P[length(tmpNullKcarryCap$P)]
+  
+  #Positive effect of Resources (beta & k & KcarryCap)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveKcarryCap[length(equilibriumH_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$H[length(tmpPositiveKcarryCap$H)]
+  equilibriumP_PositiveKcarryCap[length(equilibriumP_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$P[length(tmpPositiveKcarryCap$P)]
+  
+  #Negative effect of Resources (beta & k) with Positive effect (KcarryCap) 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeKcarryCap[length(equilibriumH_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$H[length(tmpNegativeKcarryCap$H)]
+  equilibriumP_NegativeKcarryCap[length(equilibriumP_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$P[length(tmpNegativeKcarryCap$P)]
+
+ 
+}
+
+hostEquilibriumB <- data.frame(R=resource,
+                              H_NegativeB=equilibriumH_NegativeB,
+                              H_NullB=equilibriumH_NullB,
+                              H_PositiveB=equilibriumH_PositiveB
+                              )
+
+parasiteEquilibriumB <- data.frame(R=resource,
+                                  P_NegativeB=equilibriumP_NegativeB,
+                                  P_NullB=equilibriumP_NullB,
+                                  P_PositiveB=equilibriumP_PositiveB
+                                  )
+
+pphEquilibriumB <- data.frame(R=resource,
+                             PpH_NegativeB=equilibriumP_NegativeB/equilibriumH_NegativeB,
+                             PpH_NullB=equilibriumP_NullB/equilibriumH_NullB,
+                             PpH_PositiveB=equilibriumP_PositiveB/equilibriumH_PositiveB
+                             )
+
+hostEquilibriumD <- data.frame(R=resource,
+                              H_NegativeD=equilibriumH_NegativeD,
+                              H_NullD=equilibriumH_NullD,
+                              H_PositiveD=equilibriumH_PositiveD
+                              )
+
+parasiteEquilibriumD <- data.frame(R=resource,
+                                  P_NegativeD=equilibriumP_NegativeD,
+                                  P_NullD=equilibriumP_NullD,
+                                  P_PositiveD=equilibriumP_PositiveD
+                                  )
+
+pphEquilibriumD <- data.frame(R=resource,
+                             PpH_NegativeD=equilibriumP_NegativeD/equilibriumH_NegativeD,
+                             PpH_NullD=equilibriumP_NullD/equilibriumH_NullD,
+                             PpH_PositiveD=equilibriumP_PositiveD/equilibriumH_PositiveD
+                             )
+
+hostEquilibriumKcarryCap <- data.frame(R=resource,
+                              H_NegativeKcarryCap=equilibriumH_NegativeKcarryCap,
+                              H_NullKcarryCap=equilibriumH_NullKcarryCap,
+                              H_PositiveKcarryCap=equilibriumH_PositiveKcarryCap
+                              )
+
+parasiteEquilibriumKcarryCap <- data.frame(R=resource,
+                               P_NegativeKcarryCap=equilibriumP_NegativeKcarryCap,
+                               P_NullKcarryCap=equilibriumP_NullKcarryCap,
+                               P_PositiveKcarryCap=equilibriumP_PositiveKcarryCap
+                               )
+
+pphEquilibriumKcarryCap <- data.frame(R=resource,
+                             PpH_NegativeKcarryCap=equilibriumP_NegativeKcarryCap/equilibriumH_NegativeKcarryCap,
+                             PpH_NullKcarryCap=equilibriumP_NullKcarryCap/equilibriumH_NullKcarryCap,
+                             PpH_PositiveKcarryCap=equilibriumP_PositiveKcarryCap/equilibriumH_PositiveKcarryCap
+                             )
+
+legendParameters <- data.frame(Effected_Parameter = c(replicate(21, "Negative"),
+                                                      replicate(21, "Null"),
+                                                      replicate(21, "Positive")
+                                                      )
+                               )
+
+
+#Graphing
+colors <- c("Negative" = "red", "Null" = "black", "Positive" = "blue")
+
+hostsB <- ggplot(data=hostEquilibriumB, aes(x=R)) +
+  scale_y_continuous(breaks=seq(25, 125, by=25)) +
+  expand_limits(y=c(25,125)) +
+  geom_line(aes(y=H_NegativeB), color="red", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_NullB), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_PositiveB), color="blue", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Host Birth Rate") +
+  theme_bw()
+
+#parasitesB <- ggplot(data=parasiteEquilibriumB, aes(x=R)) + 
+#  scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+#  expand_limits(y=c(500,8500)) +
+#  geom_line(aes(y=P_NegativeB), color="red", show.legend = FALSE, size = 1.2) +
+#  geom_line(aes(y=P_NullB), color="black", show.legend = FALSE, size = 1.2) +
+#  geom_line(aes(y=P_PositiveB), color="blue", show.legend = FALSE, size = 1.2) +
+#  labs(x = expression(bold("Resource Effect")),
+#       y = expression(bold("Parasite Population"))) +
+#  ggtitle(" ") + 
+#  theme_bw()
+
+pphB <- ggplot(data=pphEquilibriumB, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(0, 50, by=10)) +
+  expand_limits(y=c(0,50)) +   
+  geom_line(aes(y=PpH_NegativeB), color="red", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_NullB), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_PositiveB), color="blue", show.legend = FALSE, size = 1.2) +  
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effected by Resources") +
+  ggtitle("60 Months (10 seasons)") + 
+  theme_bw()
+
+hostsD <- ggplot(data=hostEquilibriumD, aes(x=R)) +  
+  scale_y_continuous(breaks=seq(25, 125, by=25)) +
+  expand_limits(y=c(25,125)) +
+  geom_line(aes(y=H_NegativeD), color="red", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_NullD), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_PositiveD), color="blue", show.legend = FALSE, size = 1.2) +  
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Decreasing Host Mortality") + 
+  theme_bw()
+
+#parasitesD <- ggplot(data=parasiteEquilibriumD, aes(x=R)) + 
+#  scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+#  expand_limits(y=c(500,8500)) + 
+#  geom_line(aes(y=P_NegativeD), color="red", show.legend = FALSE, size = 1.2) +
+#  geom_line(aes(y=P_NullD), color="black", show.legend = FALSE, size = 1.2) +
+#  geom_line(aes(y=P_PositiveD), color="blue", show.legend = FALSE, size = 1.2) +  
+#  labs(x = expression(bold("Resource Effect")),
+#       y = expression(bold("Parasite Population"))) +
+#  ggtitle(" ") + 
+#  theme_bw()
+
+pphD <- ggplot(data=pphEquilibriumD, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(0, 50, by=10)) +
+  expand_limits(y=c(0,50)) +   
+  geom_line(aes(y=PpH_NegativeD), color="red", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_NullD), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_PositiveD), color="blue", show.legend = FALSE, size = 1.2) +  
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effect on Infection Parameters") +
+  ggtitle("60 Months (10 seasons)") + 
+  theme_bw()
+
+hostsKcarryCap <- ggplot(data=hostEquilibriumKcarryCap, aes(x=R)) +  
+  scale_y_continuous(breaks=seq(25, 125, by=25)) +
+  expand_limits(y=c(25,125)) +
+  geom_line(aes(y=H_NegativeKcarryCap), color="red", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_NullKcarryCap), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_PositiveKcarryCap), color="blue", show.legend = FALSE, size = 1.2) +  
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Carrying Capacity") + 
+  theme_bw()
+
+#parasitesKcarryCap <- ggplot(data=parasiteEquilibriumKcarryCap, aes(x=R)) +   
+#  scale_y_continuous(breaks=seq(500, 8500, by=1000)) +
+#  expand_limits(y=c(500,8500)) +
+#  geom_line(aes(y=P_NegativeKcarryCap), color="red", show.legend = FALSE, size = 1.2) +
+#  geom_line(aes(y=P_NullKcarryCap), color="black", show.legend = FALSE, size = 1.2) +
+#  geom_line(aes(y=P_PositiveKcarryCap), color="blue", show.legend = FALSE, size = 1.2) +  
+#  labs(x = expression(bold("Resource Effect")),
+#       y = expression(bold("Parasite Population"))) +
+#  ggtitle(" ") + 
+#  theme_bw()
+
+pphKcarryCap <- ggplot(data=pphEquilibriumKcarryCap, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(0, 50, by=10)) +
+  expand_limits(y=c(0,50)) +   
+  geom_line(aes(y=PpH_NegativeKcarryCap), color="red", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_NullKcarryCap), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_PositiveKcarryCap), color="blue", show.legend = FALSE, size = 1.2) +  
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effect on Infection Parameters") +
+  ggtitle("60 Months (10 seasons)") + 
+  theme_bw()
+
+#plot_grid(hostsB, pphB, parasitesB, hostsD, pphD, parasitesD, hostsKcarryCap, pphKcarryCap, parasitesKcarryCap, labels=NULL, ncol=3 ,nrow=3)
+
+plot_grid(hostsB, pphB, hostsD, pphD, hostsKcarryCap, pphKcarryCap, labels=NULL, ncol=2 ,nrow=3)
+```
+
+
+
+```{r}
+hostsB <- ggplot(data=hostEquilibriumB, aes(x=R)) +
+  scale_y_continuous(breaks=seq(0, 80, by=20)) +
+  expand_limits(y=c(0,80)) +
+  geom_line(aes(y=H_NegativeB), color="red", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_NullB), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_PositiveB), color="blue", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population"))) +
+  ggtitle("Increasing Host Birth Rate") +
+  theme_bw()
+
+pphB <- ggplot(data=pphEquilibriumB, aes(x=R)) + 
+  scale_y_continuous(breaks=seq(0, 70, by=10)) +
+  expand_limits(y=c(0,70)) +   
+  geom_line(aes(y=PpH_NegativeB), color="red", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_NullB), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_PositiveB), color="blue", show.legend = FALSE, size = 1.2) +  
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasites per Host")),
+       col="Effected by Resources") +
+  ggtitle("60 Months (10 seasons)") + 
+  theme_bw()
+
+plot_grid(hostsB, pphB, ncol=1, nrow=2)
+```
+
+
+
+
+
+
+
+
+
+
+
