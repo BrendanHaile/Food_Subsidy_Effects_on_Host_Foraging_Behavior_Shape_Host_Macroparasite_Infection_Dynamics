@@ -1,0 +1,1466 @@
+---
+title: "Figure 3"
+author: "Brendan Haile"
+date: '2025-03-27'
+output:
+  pdf_document: default
+---
+
+```{r Packages}
+library(deSolve)
+library(tidyverse)
+library(cowplot)
+library(tinytex)
+```
+
+```{r Function - Exponential Growth}
+#Creating the function
+macroParasite <- function(t, x, parameters){
+  H <- x[1]
+  P <- x[2]
+  with(                                   
+       as.list(params),                   
+       {                                  
+         dH <- (b-d)*H-alpha*P
+         dP <- (beta*H*lambda*P)/(gamma+beta*H) - P*(d+mu+alpha) - (P*P*alpha*(k+1))/(k*H)
+         dXlist <- c(dH,dP)                
+         list(dXlist)                         
+       }
+       )
+}
+```
+
+```{r Function - Logistic Growth}
+#Recreating the macroparasite function but with logistic growth
+
+# list of parameters for quick reference
+# b = per capita host birth rate
+# d = per capita host mortality
+# alpha = additional per capita host mortality due to parasite burden (P/H)*H
+# beta = transmission (ingestion) rate of parasites by host
+# lambda = external parasite production rate (per parasite)
+# gamma = per capita loss rate of entl parasite stages
+# mu = parasite mortality within hosts
+# k = overdispersion parameter; measures parasite Dispersion (low k = highly aggregated in few hosts, high k = equally distributed among hosts)
+
+macroParasiteLogistic <- function(t, x, parameters){
+  H <- x[1]
+  P <- x[2]
+  with(                                   
+       as.list(params),                   
+       {                                  
+         dH <- (b-d)*H*(1-(H/KcarryCap))-(alpha*P)
+         dP <- (beta*H*lambda*P)/(gamma+beta*H) - P*(d+mu+alpha) - (P*P*alpha*(k+1))/(k*H)
+         dXlist <- c(dH,dP)                
+         list(dXlist)                         
+       }
+       )
+}
+```
+
+```{r - DETER + Berding MONTHLY - Starting Information - xstart, seasons, time, and resource}
+#Setting resource availability
+resource <- seq(1, 2, by=0.05)
+
+xstart <- c(H=69, P=1)
+monthsBreeding <- (12*5) #One year is 12 months
+time <- seq(1,monthsBreeding,by=1)
+
+#Parameter Values 
+b0 <- 0.5980              #monthly rate = 0.5980 
+d0 <- 1/5                 #monthly rate = 1/5
+alpha0 <- 7.94*10^(-3)    #monthly rate = 7.94*10^(-3) calculated from avg_daily_rate*365/12 [FROM BERDING]
+beta0 <- 5.2*10^(-8)      #monthly rate = 5.2*10^(-8)
+KcarryCap0 <- 70          #value = 70 per Hectare (100x100m grid)
+lambda0 <- 90000          #monthly rate = 90000
+gamma0 <- 1/3             #monthly rate = 1/3
+mu0 <- 0.375              #monthly rate = 0.375
+k0 <- 1                   #value = 1
+
+#Varying the parameters
+br = b0*resource
+dr = d0/resource
+alphar = alpha0/resource
+betarPositive = beta0*resource
+betarNegative = beta0/resource
+betarNull = beta0+(resource*0)
+KcarryCapr = KcarryCap0*resource
+lambdar = lambda0*resource
+gammar = gamma0 #not effected
+murPositive = mu0*resource
+murNegative = mu0/resource
+krPositive = k0*resource
+krNegative = k0/resource
+krNull = k0+(resource*0)
+```
+
+```{r Model - DETER + Berding MONTHLY - Logistic Growth - Covarying non-foraging parameters with foraging parameters}
+#b, d, beta, lambda, mu, gamma, KcarryCap and k from Deter 2008
+#Alpha from Berding 1987
+
+#Creating empty vectors
+equilibriumH_NullB <- c()
+equilibriumP_NullB <- c()
+tmpNullB <- c()
+equilibriumH_PositiveB <- c()
+equilibriumP_PositiveB <- c()
+tmpPositiveB <- c()
+equilibriumH_NegativeB <- c()
+equilibriumP_NegativeB <- c()
+tmpNegativeB <- c()
+equilibriumH_NutritionB <- c()
+equilibriumP_NutritionB <- c()
+tmpNutritionB <- c()
+equilibriumH_StressB <- c()
+equilibriumP_StressB <- c()
+tmpStressB <- c()
+
+equilibriumH_NullD <- c()
+equilibriumP_NullD <- c()
+tmpNullD <- c()
+equilibriumH_PositiveD <- c()
+equilibriumP_PositiveD <- c()
+tmpPositiveD <- c()
+equilibriumH_NegativeD <- c()
+equilibriumP_NegativeD <- c()
+tmpNegativeD <- c()
+equilibriumH_NutritionD <- c()
+equilibriumP_NutritionD <- c()
+tmpNutritionD <- c()
+equilibriumH_StressD <- c()
+equilibriumP_StressD <- c()
+tmpStressD <- c()
+
+equilibriumH_NullKcarryCap <- c()
+equilibriumP_NullKcarryCap <- c()
+tmpNullKcarryCap <- c()
+equilibriumH_PositiveKcarryCap <- c()
+equilibriumP_PositiveKcarryCap <- c()
+tmpPositiveKcarryCap <- c()
+equilibriumH_NegativeKcarryCap <- c()
+equilibriumP_NegativeKcarryCap <- c()
+tmpNegativeKcarryCap <- c()
+equilibriumH_NutritionKcarryCap <- c()
+equilibriumP_NutritionKcarryCap <- c()
+tmpNutritionKcarryCap <- c()
+equilibriumH_StressKcarryCap <- c()
+equilibriumP_StressKcarryCap <- c()
+tmpStressKcarryCap <- c()
+
+equilibriumH_NullAlpha <- c()
+equilibriumP_NullAlpha <- c()
+tmpNullAlpha <- c()
+equilibriumH_PositiveAlpha <- c()
+equilibriumP_PositiveAlpha <- c()
+tmpPositiveAlpha <- c()
+equilibriumH_NegativeAlpha <- c()
+equilibriumP_NegativeAlpha <- c()
+tmpNegativeAlpha <- c()
+equilibriumH_NutritionAlpha <- c()
+equilibriumP_NutritionAlpha <- c()
+tmpNutritionAlpha <- c()
+equilibriumH_StressAlpha <- c()
+equilibriumP_StressAlpha <- c()
+tmpStressAlpha <- c()
+
+equilibriumH_NullMuPlus <- c()
+equilibriumP_NullMuPlus <- c()
+tmpNullMuPlus <- c()
+equilibriumH_PositiveMuPlus <- c()
+equilibriumP_PositiveMuPlus <- c()
+tmpPositiveMuPlus <- c()
+equilibriumH_NegativeMuPlus <- c()
+equilibriumP_NegativeMuPlus <- c()
+tmpNegativeMuPlus <- c()
+equilibriumH_NutritionMuPlus <- c()
+equilibriumP_NutritionMuPlus <- c()
+tmpNutritionMuPlus <- c()
+equilibriumH_StressMuPlus <- c()
+equilibriumP_StressMuPlus <- c()
+tmpStressMuPlus <- c()
+
+equilibriumH_NullLambda <- c()
+equilibriumP_NullLambda <- c()
+tmpNullLambda <- c()
+equilibriumH_PositiveLambda <- c()
+equilibriumP_PositiveLambda <- c()
+tmpPositiveLambda <- c()
+equilibriumH_NegativeLambda <- c()
+equilibriumP_NegativeLambda <- c()
+tmpNegativeLambda <- c()
+equilibriumH_NutritionLambda <- c()
+equilibriumP_NutritionLambda <- c()
+tmpNutritionLambda <- c()
+equilibriumH_StressLambda <- c()
+equilibriumP_StressLambda <- c()
+tmpStressLambda <- c()
+
+equilibriumH_NullMuMinus <- c()
+equilibriumP_NullMuMinus <- c()
+tmpNullMuMinus <- c()
+equilibriumH_PositiveMuMinus <- c()
+equilibriumP_PositiveMuMinus <- c()
+tmpPositiveMuMinus <- c()
+equilibriumH_NegativeMuMinus <- c()
+equilibriumP_NegativeMuMinus <- c()
+tmpNegativeMuMinus <- c()
+equilibriumH_NutritionMuMinus <- c()
+equilibriumP_NutritionMuMinus <- c()
+tmpNutritionMuMinus <- c()
+equilibriumH_StressMuMinus <- c()
+equilibriumP_StressMuMinus <- c()
+tmpStressMuMinus <- c()
+
+for (i in 1:length(resource)){ #This will go through the loop for the length of the resource variable
+  xstart <- c(H=69, P=1) #Resets the initial parameter values
+
+  #Null effect of Resources (beta & k)  with Positive effect (b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullB[length(equilibriumH_NullB)+1] <- tmpNullB$H[length(tmpNullB$H)]
+  equilibriumP_NullB[length(equilibriumP_NullB)+1] <- tmpNullB$P[length(tmpNullB$P)]
+  
+  #Positive effect of Resources (beta & k & b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveB[length(equilibriumH_PositiveB)+1] <- tmpPositiveB$H[length(tmpPositiveB$H)]
+  equilibriumP_PositiveB[length(equilibriumP_PositiveB)+1] <- tmpPositiveB$P[length(tmpPositiveB$P)]
+  
+  #Negative effect of Resources (beta & k) with Positive effect (b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeB[length(equilibriumH_NegativeB)+1] <- tmpNegativeB$H[length(tmpNegativeB$H)]
+  equilibriumP_NegativeB[length(equilibriumP_NegativeB)+1] <- tmpNegativeB$P[length(tmpNegativeB$P)]
+  
+  #Edge Case: Nutrition (beta- & k+) with Positive effect (b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNutritionB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NutritionB[length(equilibriumH_NutritionB)+1] <- tmpNutritionB$H[length(tmpNutritionB$H)]
+  equilibriumP_NutritionB[length(equilibriumP_NutritionB)+1] <- tmpNutritionB$P[length(tmpNutritionB$P)]
+  
+  #Edge Case: Stress (beta+ & k-) with Positive effect (b)
+  b=br[i]
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpStressB <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_StressB[length(equilibriumH_StressB)+1] <- tmpStressB$H[length(tmpStressB$H)]
+  equilibriumP_StressB[length(equilibriumP_StressB)+1] <- tmpStressB$P[length(tmpStressB$P)]
+
+  #########################################################################################################################################
+  
+  #Null effect of Resources (beta & k) with Negative effect (d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullD[length(equilibriumH_NullD)+1] <- tmpNullD$H[length(tmpNullD$H)]
+  equilibriumP_NullD[length(equilibriumP_NullD)+1] <- tmpNullD$P[length(tmpNullD$P)]
+  
+  #Positive effect of Resources (beta & k) with Negative effect (d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveD[length(equilibriumH_PositiveD)+1] <- tmpPositiveD$H[length(tmpPositiveD$H)]
+  equilibriumP_PositiveD[length(equilibriumP_PositiveD)+1] <- tmpPositiveD$P[length(tmpPositiveD$P)]
+  
+  #Negative effect of Resources (beta & k & d) 
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeD[length(equilibriumH_NegativeD)+1] <- tmpNegativeD$H[length(tmpNegativeD$H)]
+  equilibriumP_NegativeD[length(equilibriumP_NegativeD)+1] <- tmpNegativeD$P[length(tmpNegativeD$P)]
+  
+  #Edge Case: Nutrition (beta- & k+) with Negative effect (d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNutritionD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NutritionD[length(equilibriumH_NutritionD)+1] <- tmpNutritionD$H[length(tmpNutritionD$H)]
+  equilibriumP_NutritionD[length(equilibriumP_NutritionD)+1] <- tmpNutritionD$P[length(tmpNutritionD$P)]
+  
+  #Edge Case: Stress (beta+ & k-) with Negative effect (d)
+  b=b0
+  d=dr[i]
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpStressD <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_StressD[length(equilibriumH_StressD)+1] <- tmpStressD$H[length(tmpStressD$H)]
+  equilibriumP_StressD[length(equilibriumP_StressD)+1] <- tmpStressD$P[length(tmpStressD$P)]
+  
+#########################################################################################################################################
+  
+  #Null effect of Resources (beta & k) with Positive effect (KcarryCap)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullKcarryCap[length(equilibriumH_NullKcarryCap)+1] <- tmpNullKcarryCap$H[length(tmpNullKcarryCap$H)]
+  equilibriumP_NullKcarryCap[length(equilibriumP_NullKcarryCap)+1] <- tmpNullKcarryCap$P[length(tmpNullKcarryCap$P)]
+  
+  #Positive effect of Resources (beta & k & KcarryCap)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveKcarryCap[length(equilibriumH_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$H[length(tmpPositiveKcarryCap$H)]
+  equilibriumP_PositiveKcarryCap[length(equilibriumP_PositiveKcarryCap)+1] <- tmpPositiveKcarryCap$P[length(tmpPositiveKcarryCap$P)]
+  
+  #Negative effect of Resources (beta & k) with Positive effect (KcarryCap) 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeKcarryCap[length(equilibriumH_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$H[length(tmpNegativeKcarryCap$H)]
+  equilibriumP_NegativeKcarryCap[length(equilibriumP_NegativeKcarryCap)+1] <- tmpNegativeKcarryCap$P[length(tmpNegativeKcarryCap$P)]
+  
+  #Edge Case: Nutrition (beta- & k+) with Positive effect (KcarryCap) 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNutritionKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NutritionKcarryCap[length(equilibriumH_NutritionKcarryCap)+1] <- tmpNutritionKcarryCap$H[length(tmpNutritionKcarryCap$H)]
+  equilibriumP_NutritionKcarryCap[length(equilibriumP_NutritionKcarryCap)+1] <- tmpNutritionKcarryCap$P[length(tmpNutritionKcarryCap$P)]
+  
+  #Edge Case: Stress (beta+ & k-) with Positive effect (KcarryCap) 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCapr[i]
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpStressKcarryCap <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_StressKcarryCap[length(equilibriumH_StressKcarryCap)+1] <- tmpStressKcarryCap$H[length(tmpStressKcarryCap$H)]
+  equilibriumP_StressKcarryCap[length(equilibriumP_StressKcarryCap)+1] <- tmpStressKcarryCap$P[length(tmpStressKcarryCap$P)]
+  
+  #################################################################################################################################################################
+  
+  #Null effect of Resources (beta & k) with alpha
+  b=b0
+  d=d0
+  alpha=alphar[i]
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullAlpha <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullAlpha[length(equilibriumH_NullAlpha)+1] <- tmpNullAlpha$H[length(tmpNullAlpha$H)]
+  equilibriumP_NullAlpha[length(equilibriumP_NullAlpha)+1] <- tmpNullAlpha$P[length(tmpNullAlpha$P)]
+  
+  #Positive effect of Resources (beta & k) with alpha
+  b=b0
+  d=d0
+  alpha=alphar[i]
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveAlpha <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveAlpha[length(equilibriumH_PositiveAlpha)+1] <- tmpPositiveAlpha$H[length(tmpPositiveAlpha$H)]
+  equilibriumP_PositiveAlpha[length(equilibriumP_PositiveAlpha)+1] <- tmpPositiveAlpha$P[length(tmpPositiveAlpha$P)]
+  
+  #Negative effect of Resources (beta & k) with alpha
+  b=b0
+  d=d0
+  alpha=alphar[i]
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeAlpha <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeAlpha[length(equilibriumH_NegativeAlpha)+1] <- tmpNegativeAlpha$H[length(tmpNegativeAlpha$H)]
+  equilibriumP_NegativeAlpha[length(equilibriumP_NegativeAlpha)+1] <- tmpNegativeAlpha$P[length(tmpNegativeAlpha$P)]
+  
+  #Edge Case: Nutrition (beta- & k+) with alpha
+  b=b0
+  d=d0
+  alpha=alphar[i]
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNutritionAlpha <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NutritionAlpha[length(equilibriumH_NutritionAlpha)+1] <- tmpNutritionAlpha$H[length(tmpNutritionAlpha$H)]
+  equilibriumP_NutritionAlpha[length(equilibriumP_NutritionAlpha)+1] <- tmpNutritionAlpha$P[length(tmpNutritionAlpha$P)]
+  
+  #Edge Case: Stress (beta+ & k-) with alpha
+  b=b0
+  d=d0
+  alpha=alphar[i]
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpStressAlpha <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_StressAlpha[length(equilibriumH_StressAlpha)+1] <- tmpStressAlpha$H[length(tmpStressAlpha$H)]
+  equilibriumP_StressAlpha[length(equilibriumP_StressAlpha)+1] <- tmpStressAlpha$P[length(tmpStressAlpha$P)]
+
+#################################################################################################################################################################
+  
+  #Null effect of Resources (beta & k) with muPositive
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=murPositive[i]
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullMuPlus <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullMuPlus[length(equilibriumH_NullMuPlus)+1] <- tmpNullMuPlus$H[length(tmpNullMuPlus$H)]
+  equilibriumP_NullMuPlus[length(equilibriumP_NullMuPlus)+1] <- tmpNullMuPlus$P[length(tmpNullMuPlus$P)]
+  
+  #Positive effect of Resources (beta & k) with muPositive
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=murPositive[i]
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveMuPlus <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveMuPlus[length(equilibriumH_PositiveMuPlus)+1] <- tmpPositiveMuPlus$H[length(tmpPositiveMuPlus$H)]
+  equilibriumP_PositiveMuPlus[length(equilibriumP_PositiveMuPlus)+1] <- tmpPositiveMuPlus$P[length(tmpPositiveMuPlus$P)]
+  
+  #Negative effect of Resources (beta & k) with muPositive 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=murPositive[i]
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeMuPlus <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeMuPlus[length(equilibriumH_NegativeMuPlus)+1] <- tmpNegativeMuPlus$H[length(tmpNegativeMuPlus$H)]
+  equilibriumP_NegativeMuPlus[length(equilibriumP_NegativeMuPlus)+1] <- tmpNegativeMuPlus$P[length(tmpNegativeMuPlus$P)]
+  
+  #Edge Case: Nutrition (beta- & k+) with muPositive 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=murPositive[i]
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNutritionMuPlus <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NutritionMuPlus[length(equilibriumH_NutritionMuPlus)+1] <- tmpNutritionMuPlus$H[length(tmpNutritionMuPlus$H)]
+  equilibriumP_NutritionMuPlus[length(equilibriumP_NutritionMuPlus)+1] <- tmpNutritionMuPlus$P[length(tmpNutritionMuPlus$P)]
+  
+  #Edge Case: Stress (beta+ & k-) with muPositive 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=murPositive[i]
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpStressMuPlus <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_StressMuPlus[length(equilibriumH_StressMuPlus)+1] <- tmpStressMuPlus$H[length(tmpStressMuPlus$H)]
+  equilibriumP_StressMuPlus[length(equilibriumP_StressMuPlus)+1] <- tmpStressMuPlus$P[length(tmpStressMuPlus$P)]
+ 
+  #################################################################################################################################################################
+  
+  #Null effect of Resources (beta & k & lambda)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambdar[i]
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullLambda <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullLambda[length(equilibriumH_NullLambda)+1] <- tmpNullLambda$H[length(tmpNullLambda$H)]
+  equilibriumP_NullLambda[length(equilibriumP_NullLambda)+1] <- tmpNullLambda$P[length(tmpNullLambda$P)]
+  
+  #Positiveered effect of Resources (beta & k & lambda)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambdar[i]
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveLambda <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveLambda[length(equilibriumH_PositiveLambda)+1] <- tmpPositiveLambda$H[length(tmpPositiveLambda$H)]
+  equilibriumP_PositiveLambda[length(equilibriumP_PositiveLambda)+1] <- tmpPositiveLambda$P[length(tmpPositiveLambda$P)]
+  
+  #Negative effect of Resources (beta & k & lambda) 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambdar[i]
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeLambda <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeLambda[length(equilibriumH_NegativeLambda)+1] <- tmpNegativeLambda$H[length(tmpNegativeLambda$H)]
+  equilibriumP_NegativeLambda[length(equilibriumP_NegativeLambda)+1] <- tmpNegativeLambda$P[length(tmpNegativeLambda$P)]
+
+  #Edge Case: Nutrition (beta- & k+) with Lambda 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambdar[i]
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNutritionLambda <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NutritionLambda[length(equilibriumH_NutritionLambda)+1] <- tmpNutritionLambda$H[length(tmpNutritionLambda$H)]
+  equilibriumP_NutritionLambda[length(equilibriumP_NutritionLambda)+1] <- tmpNutritionLambda$P[length(tmpNutritionLambda$P)]
+  
+  #Edge Case: Stress (beta+ & k-) with Lambda 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambdar[i]
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpStressLambda <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_StressLambda[length(equilibriumH_StressLambda)+1] <- tmpStressLambda$H[length(tmpStressLambda$H)]
+  equilibriumP_StressLambda[length(equilibriumP_StressLambda)+1] <- tmpStressLambda$P[length(tmpStressLambda$P)]
+  
+###################################################################################################################################################################
+  
+  #Null effect of Resources (beta & k & muNegative)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=murNegative[i]
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNullMuMinus <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NullMuMinus[length(equilibriumH_NullMuMinus)+1] <- tmpNullMuMinus$H[length(tmpNullMuMinus$H)]
+  equilibriumP_NullMuMinus[length(equilibriumP_NullMuMinus)+1] <- tmpNullMuMinus$P[length(tmpNullMuMinus$P)]
+  
+  #Positive effect of Resources (beta & k & muNegative)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=murNegative[i]
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositiveMuMinus <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_PositiveMuMinus[length(equilibriumH_PositiveMuMinus)+1] <- tmpPositiveMuMinus$H[length(tmpPositiveMuMinus$H)]
+  equilibriumP_PositiveMuMinus[length(equilibriumP_PositiveMuMinus)+1] <- tmpPositiveMuMinus$P[length(tmpPositiveMuMinus$P)]
+  
+  #Negative effect of Resources (beta & k & muNegative) 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=murNegative[i]
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegativeMuMinus <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NegativeMuMinus[length(equilibriumH_NegativeMuMinus)+1] <- tmpNegativeMuMinus$H[length(tmpNegativeMuMinus$H)]
+  equilibriumP_NegativeMuMinus[length(equilibriumP_NegativeMuMinus)+1] <- tmpNegativeMuMinus$P[length(tmpNegativeMuMinus$P)]
+
+  #Edge Case: Nutrition (beta- & k+) with muNegative 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=murNegative[i]
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNutritionMuMinus <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_NutritionMuMinus[length(equilibriumH_NutritionMuMinus)+1] <- tmpNutritionMuMinus$H[length(tmpNutritionMuMinus$H)]
+  equilibriumP_NutritionMuMinus[length(equilibriumP_NutritionMuMinus)+1] <- tmpNutritionMuMinus$P[length(tmpNutritionMuMinus$P)]
+  
+  #Edge Case: Stress (beta+ & k-) with muNegative 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=murNegative[i]
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpStressMuMinus <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_StressMuMinus[length(equilibriumH_StressMuMinus)+1] <- tmpStressMuMinus$H[length(tmpStressMuMinus$H)]
+  equilibriumP_StressMuMinus[length(equilibriumP_StressMuMinus)+1] <- tmpStressMuMinus$P[length(tmpStressMuMinus$P)]
+ 
+}
+
+
+legendParameters <- data.frame(Effected_Parameter = c(replicate(21, "Negative"),
+                                                      replicate(21, "Null"),
+                                                      replicate(21, "Positive")
+                                                      )
+                               )
+
+```
+
+```{r - Making dataframes}
+hostEquilibrium <- data.frame(R=resource,
+                              H_NegativeB=equilibriumH_NegativeB,
+                              H_NullB=equilibriumH_NullB,
+                              H_PositiveB=equilibriumH_PositiveB,
+                              H_NutritionB=equilibriumH_NutritionB,
+                              H_StressB=equilibriumH_StressB,
+                              H_NegativeD=equilibriumH_NegativeD,
+                              H_NullD=equilibriumH_NullD,
+                              H_PositiveD=equilibriumH_PositiveD,
+                              H_NutritionD=equilibriumH_NutritionD,
+                              H_StressD=equilibriumH_StressD,
+                              H_NegativeKcarryCap=equilibriumH_NegativeKcarryCap,
+                              H_NullKcarryCap=equilibriumH_NullKcarryCap,
+                              H_PositiveKcarryCap=equilibriumH_PositiveKcarryCap,
+                              H_NutritionKcarryCap=equilibriumH_NutritionKcarryCap,
+                              H_StressKcarryCap=equilibriumH_StressKcarryCap,
+                              H_NegativeAlpha=equilibriumH_NegativeAlpha,
+                              H_NullAlpha=equilibriumH_NullAlpha,
+                              H_PositiveAlpha=equilibriumH_PositiveAlpha,
+                              H_NutritionAlpha=equilibriumH_NutritionAlpha,
+                              H_StressAlpha=equilibriumH_StressAlpha,
+                              H_NegativeMuPlus=equilibriumH_NegativeMuPlus,
+                              H_NullMuPlus=equilibriumH_NullMuPlus,
+                              H_PositiveMuPlus=equilibriumH_PositiveMuPlus,
+                              H_NutritionMuPlus=equilibriumH_NutritionMuPlus,
+                              H_StressMuPlus=equilibriumH_StressMuPlus,
+                              H_NegativeLambda=equilibriumH_NegativeLambda,
+                              H_NullLambda=equilibriumH_NullLambda,
+                              H_PositiveLambda=equilibriumH_PositiveLambda,
+                              H_NutritionLambda=equilibriumH_NutritionLambda,
+                              H_StressLambda=equilibriumH_StressLambda,
+                              H_NegativeMuMinus=equilibriumH_NegativeMuMinus,
+                              H_NullMuMinus=equilibriumH_NullMuMinus,
+                              H_PositiveMuMinus=equilibriumH_PositiveMuMinus,
+                              H_NutritionMuMinus=equilibriumH_NutritionMuMinus,
+                              H_StressMuMinus=equilibriumH_StressMuMinus
+                              )
+
+parasiteEquilibrium <- data.frame(R=resource,
+                              P_NegativeB=equilibriumP_NegativeB,
+                              P_NullB=equilibriumP_NullB,
+                              P_PositiveB=equilibriumP_PositiveB,
+                              P_NutritionB=equilibriumP_NutritionB,
+                              P_StressB=equilibriumP_StressB,
+                              P_NegativeD=equilibriumP_NegativeD,
+                              P_NullD=equilibriumP_NullD,
+                              P_PositiveD=equilibriumP_PositiveD,
+                              P_NutritionD=equilibriumP_NutritionD,
+                              P_StressD=equilibriumP_StressD,
+                              P_NegativeKcarryCap=equilibriumP_NegativeKcarryCap,
+                              P_NullKcarryCap=equilibriumP_NullKcarryCap,
+                              P_PositiveKcarryCap=equilibriumP_PositiveKcarryCap,
+                              P_NutritionKcarryCap=equilibriumP_NutritionKcarryCap,
+                              P_StressKcarryCap=equilibriumP_StressKcarryCap,
+                              P_NegativeAlpha=equilibriumP_NegativeAlpha,
+                              P_NullAlpha=equilibriumP_NullAlpha,
+                              P_PositiveAlpha=equilibriumP_PositiveAlpha,
+                              P_NutritionAlpha=equilibriumP_NutritionAlpha,
+                              P_StressAlpha=equilibriumP_StressAlpha,
+                              P_NegativeMuPlus=equilibriumP_NegativeMuPlus,
+                              P_NullMuPlus=equilibriumP_NullMuPlus,
+                              P_PositiveMuPlus=equilibriumP_PositiveMuPlus,
+                              P_NutritionMuPlus=equilibriumP_NutritionMuPlus,
+                              P_StressMuPlus=equilibriumP_StressMuPlus,
+                              P_NegativeLambda=equilibriumP_NegativeLambda,
+                              P_NullLambda=equilibriumP_NullLambda,
+                              P_PositiveLambda=equilibriumP_PositiveLambda,
+                              P_NutritionLambda=equilibriumP_NutritionLambda,
+                              P_StressLambda=equilibriumP_StressLambda,
+                              P_NegativeMuMinus=equilibriumP_NegativeMuMinus,
+                              P_NullMuMinus=equilibriumP_NullMuMinus,
+                              P_PositiveMuMinus=equilibriumP_PositiveMuMinus,
+                              P_NutritionMuMinus=equilibriumP_NutritionMuMinus,
+                              P_StressMuMinus=equilibriumP_StressMuMinus
+                              )
+
+pphEquilibrium <- data.frame(R=resource,
+                             PpH_NegativeB=equilibriumP_NegativeB/equilibriumH_NegativeB,
+                             PpH_NullB=equilibriumP_NullB/equilibriumH_NullB,
+                             PpH_PositiveB=equilibriumP_PositiveB/equilibriumH_PositiveB,
+                             PpH_NutritionB=equilibriumP_NutritionB/equilibriumH_NutritionB,
+                             PpH_StressB=equilibriumP_StressB/equilibriumH_StressB,
+                             PpH_NegativeD=equilibriumP_NegativeD/equilibriumH_NegativeD,
+                             PpH_NullD=equilibriumP_NullD/equilibriumH_NullD,
+                             PpH_PositiveD=equilibriumP_PositiveD/equilibriumH_PositiveD,
+                             PpH_NutritionD=equilibriumP_NutritionD/equilibriumH_NutritionD,
+                             PpH_StressD=equilibriumP_StressD/equilibriumH_StressD,
+                             PpH_NegativeKcarryCap=equilibriumP_NegativeKcarryCap/equilibriumH_NegativeKcarryCap,
+                             PpH_NullKcarryCap=equilibriumP_NullKcarryCap/equilibriumH_NullKcarryCap,
+                             PpH_PositiveKcarryCap=equilibriumP_PositiveKcarryCap/equilibriumH_PositiveKcarryCap,
+                             PpH_NutritionKcarryCap=equilibriumP_NutritionKcarryCap/equilibriumH_NutritionKcarryCap,
+                             PpH_StressKcarryCap=equilibriumP_StressKcarryCap/equilibriumH_StressKcarryCap,
+                             PpH_NegativeAlpha=equilibriumP_NegativeAlpha/equilibriumH_NegativeAlpha,
+                             PpH_NullAlpha=equilibriumP_NullAlpha/equilibriumH_NullAlpha,
+                             PpH_PositiveAlpha=equilibriumP_PositiveAlpha/equilibriumH_PositiveAlpha,
+                             PpH_NutritionAlpha=equilibriumP_NutritionAlpha/equilibriumH_NutritionAlpha,
+                             PpH_StressAlpha=equilibriumP_StressAlpha/equilibriumH_StressAlpha,
+                             PpH_NegativeMuPlus=equilibriumP_NegativeMuPlus/equilibriumH_NegativeMuPlus,
+                             PpH_NullMuPlus=equilibriumP_NullMuPlus/equilibriumH_NullMuPlus,
+                             PpH_PositiveMuPlus=equilibriumP_PositiveMuPlus/equilibriumH_PositiveMuPlus,
+                             PpH_NutritionMuPlus=equilibriumP_NutritionMuPlus/equilibriumH_NutritionMuPlus,
+                             PpH_StressMuPlus=equilibriumP_StressMuPlus/equilibriumH_StressMuPlus,
+                             PpH_NegativeLambda=equilibriumP_NegativeLambda/equilibriumH_NegativeLambda,
+                             PpH_NullLambda=equilibriumP_NullLambda/equilibriumH_NullLambda,
+                             PpH_PositiveLambda=equilibriumP_PositiveLambda/equilibriumH_PositiveLambda,
+                             PpH_NutritionLambda=equilibriumP_NutritionLambda/equilibriumH_NutritionLambda,
+                             PpH_StressLambda=equilibriumP_StressLambda/equilibriumH_StressLambda,
+                             PpH_NegativeMuMinus=equilibriumP_NegativeMuMinus/equilibriumH_NegativeMuMinus,
+                             PpH_NullMuMinus=equilibriumP_NullMuMinus/equilibriumH_NullMuMinus,
+                             PpH_PositiveMuMinus=equilibriumP_PositiveMuMinus/equilibriumH_PositiveMuMinus,
+                             PpH_NutritionMuMinus=equilibriumP_NutritionMuMinus/equilibriumH_NutritionMuMinus,
+                             PpH_StressMuMinus=equilibriumP_StressMuMinus/equilibriumH_StressMuMinus
+                             )
+
+```
+
+```{r - Finding Min and Max Values}
+#Hosts
+hostMinBNeg <- (min(hostEquilibrium$H_NegativeB)-hostEquilibrium$H_NegativeB[1])/hostEquilibrium$H_NegativeB[1]*100
+hostMaxBNeg <- (max(hostEquilibrium$H_NegativeB)-hostEquilibrium$H_NegativeB[1])/hostEquilibrium$H_NegativeB[1]*100
+
+hostMinBNull <- (min(hostEquilibrium$H_NullB)-hostEquilibrium$H_NullB[1])/hostEquilibrium$H_NullB[1]*100
+hostMaxBNull <- (max(hostEquilibrium$H_NullB)-hostEquilibrium$H_NullB[1])/hostEquilibrium$H_NullB[1]*100
+
+hostMinBPos <- (min(hostEquilibrium$H_PositiveB)-hostEquilibrium$H_PositiveB[1])/hostEquilibrium$H_PositiveB[1]*100
+hostMaxBPos <- (max(hostEquilibrium$H_PositiveB)-hostEquilibrium$H_PositiveB[1])/hostEquilibrium$H_PositiveB[1]*100
+
+hostMinBNutrition <- (min(hostEquilibrium$H_NutritionB)-hostEquilibrium$H_NutritionB[1])/hostEquilibrium$H_NutritionB[1]*100
+hostMaxBNutrition <- (max(hostEquilibrium$H_NutritionB)-hostEquilibrium$H_NutritionB[1])/hostEquilibrium$H_NutritionB[1]*100
+
+hostMinBStress <- (min(hostEquilibrium$H_StressB)-hostEquilibrium$H_StressB[1])/hostEquilibrium$H_StressB[1]*100
+hostMaxBStress <- (max(hostEquilibrium$H_StressB)-hostEquilibrium$H_StressB[1])/hostEquilibrium$H_StressB[1]*100
+
+######
+
+hostMinDNeg <- (min(hostEquilibrium$H_NegativeD)-hostEquilibrium$H_NegativeD[1])/hostEquilibrium$H_NegativeD[1]*100
+hostMaxDNeg <- (max(hostEquilibrium$H_NegativeD)-hostEquilibrium$H_NegativeD[1])/hostEquilibrium$H_NegativeD[1]*100
+
+hostMinDNull <- (min(hostEquilibrium$H_NullD)-hostEquilibrium$H_NullD[1])/hostEquilibrium$H_NullD[1]*100
+hostMaxDNull <- (max(hostEquilibrium$H_NullD)-hostEquilibrium$H_NullD[1])/hostEquilibrium$H_NullD[1]*100
+
+hostMinDPos <- (min(hostEquilibrium$H_PositiveD)-hostEquilibrium$H_PositiveD[1])/hostEquilibrium$H_PositiveD[1]*100
+hostMaxDPos <- (max(hostEquilibrium$H_PositiveD)-hostEquilibrium$H_PositiveD[1])/hostEquilibrium$H_PositiveD[1]*100
+
+hostMinDNutrition <- (min(hostEquilibrium$H_NutritionD)-hostEquilibrium$H_NutritionD[1])/hostEquilibrium$H_NutritionD[1]*100
+hostMaxDNutrition <- (max(hostEquilibrium$H_NutritionD)-hostEquilibrium$H_NutritionD[1])/hostEquilibrium$H_NutritionD[1]*100
+
+hostMinDStress <- (min(hostEquilibrium$H_StressD)-hostEquilibrium$H_StressD[1])/hostEquilibrium$H_StressD[1]*100
+hostMaxDStress <- (max(hostEquilibrium$H_StressD)-hostEquilibrium$H_StressD[1])/hostEquilibrium$H_StressD[1]*100
+
+######
+
+hostMinKcarryCapNeg <- (min(hostEquilibrium$H_NegativeKcarryCap)-hostEquilibrium$H_NegativeKcarryCap[1])/hostEquilibrium$H_NegativeKcarryCap[1]*100
+hostMaxKcarryCapNeg <- (max(hostEquilibrium$H_NegativeKcarryCap)-hostEquilibrium$H_NegativeKcarryCap[1])/hostEquilibrium$H_NegativeKcarryCap[1]*100
+
+hostMinKcarryCapNull <- (min(hostEquilibrium$H_NullKcarryCap)-hostEquilibrium$H_NullKcarryCap[1])/hostEquilibrium$H_NullKcarryCap[1]*100
+hostMaxKcarryCapNull <- (max(hostEquilibrium$H_NullKcarryCap)-hostEquilibrium$H_NullKcarryCap[1])/hostEquilibrium$H_NullKcarryCap[1]*100
+
+hostMinKcarryCapPos <- (min(hostEquilibrium$H_PositiveKcarryCap)-hostEquilibrium$H_PositiveKcarryCap[1])/hostEquilibrium$H_PositiveKcarryCap[1]*100
+hostMaxKcarryCapPos <- (max(hostEquilibrium$H_PositiveKcarryCap)-hostEquilibrium$H_PositiveKcarryCap[1])/hostEquilibrium$H_PositiveKcarryCap[1]*100
+
+hostMinKcarryCapNutrition <- (min(hostEquilibrium$H_NutritionKcarryCap)-hostEquilibrium$H_NutritionKcarryCap[1])/hostEquilibrium$H_NutritionKcarryCap[1]*100
+hostMaxKcarryCapNutrition <- (max(hostEquilibrium$H_NutritionKcarryCap)-hostEquilibrium$H_NutritionKcarryCap[1])/hostEquilibrium$H_NutritionKcarryCap[1]*100
+
+hostMinKcarryCapStress <- (min(hostEquilibrium$H_StressKcarryCap)-hostEquilibrium$H_StressKcarryCap[1])/hostEquilibrium$H_StressKcarryCap[1]*100
+hostMaxKcarryCapStress <- (max(hostEquilibrium$H_StressKcarryCap)-hostEquilibrium$H_StressKcarryCap[1])/hostEquilibrium$H_StressKcarryCap[1]*100
+
+######
+
+hostMinAlphaNeg <- (min(hostEquilibrium$H_NegativeAlpha)-hostEquilibrium$H_NegativeAlpha[1])/hostEquilibrium$H_NegativeAlpha[1]*100
+hostMaxAlphaNeg <- (max(hostEquilibrium$H_NegativeAlpha)-hostEquilibrium$H_NegativeAlpha[1])/hostEquilibrium$H_NegativeAlpha[1]*100
+
+hostMinAlphaNull <- (min(hostEquilibrium$H_NullAlpha)-hostEquilibrium$H_NullAlpha[1])/hostEquilibrium$H_NullAlpha[1]*100
+hostMaxAlphaNull <- (max(hostEquilibrium$H_NullAlpha)-hostEquilibrium$H_NullAlpha[1])/hostEquilibrium$H_NullAlpha[1]*100
+
+hostMinAlphaPos <- (min(hostEquilibrium$H_PositiveAlpha)-hostEquilibrium$H_PositiveAlpha[1])/hostEquilibrium$H_PositiveAlpha[1]*100
+hostMaxAlphaPos <- (max(hostEquilibrium$H_PositiveAlpha)-hostEquilibrium$H_PositiveAlpha[1])/hostEquilibrium$H_PositiveAlpha[1]*100
+
+hostMinAlphaNutrition <- (min(hostEquilibrium$H_NutritionAlpha)-hostEquilibrium$H_NutritionAlpha[1])/hostEquilibrium$H_NutritionAlpha[1]*100
+hostMaxAlphaNutrition <- (max(hostEquilibrium$H_NutritionAlpha)-hostEquilibrium$H_NutritionAlpha[1])/hostEquilibrium$H_NutritionAlpha[1]*100
+
+hostMinAlphaStress <- (min(hostEquilibrium$H_StressAlpha)-hostEquilibrium$H_StressAlpha[1])/hostEquilibrium$H_StressAlpha[1]*100
+hostMaxAlphaStress <- (max(hostEquilibrium$H_StressAlpha)-hostEquilibrium$H_StressAlpha[1])/hostEquilibrium$H_StressAlpha[1]*100
+
+######
+
+hostMinMuPlusNeg <- (min(hostEquilibrium$H_NegativeMuPlus)-hostEquilibrium$H_NegativeMuPlus[1])/hostEquilibrium$H_NegativeMuPlus[1]*100
+hostMaxMuPlusNeg <- (max(hostEquilibrium$H_NegativeMuPlus)-hostEquilibrium$H_NegativeMuPlus[1])/hostEquilibrium$H_NegativeMuPlus[1]*100
+
+hostMinMuPlusNull <- (min(hostEquilibrium$H_NullMuPlus)-hostEquilibrium$H_NullMuPlus[1])/hostEquilibrium$H_NullMuPlus[1]*100
+hostMaxMuPlusNull <- (max(hostEquilibrium$H_NullMuPlus)-hostEquilibrium$H_NullMuPlus[1])/hostEquilibrium$H_NullMuPlus[1]*100
+
+hostMinMuPlusPos <- (min(hostEquilibrium$H_PositiveMuPlus)-hostEquilibrium$H_PositiveMuPlus[1])/hostEquilibrium$H_PositiveMuPlus[1]*100
+hostMaxMuPlusPos <- (max(hostEquilibrium$H_PositiveMuPlus)-hostEquilibrium$H_PositiveMuPlus[1])/hostEquilibrium$H_PositiveMuPlus[1]*100
+
+hostMinMuPlusNutrition <- (min(hostEquilibrium$H_NutritionMuPlus)-hostEquilibrium$H_NutritionMuPlus[1])/hostEquilibrium$H_NutritionMuPlus[1]*100
+hostMaxMuPlusNutrition <- (max(hostEquilibrium$H_NutritionMuPlus)-hostEquilibrium$H_NutritionMuPlus[1])/hostEquilibrium$H_NutritionMuPlus[1]*100
+
+hostMinMuPlusStress <- (min(hostEquilibrium$H_StressMuPlus)-hostEquilibrium$H_StressMuPlus[1])/hostEquilibrium$H_StressMuPlus[1]*100
+hostMaxMuPlusStress <- (max(hostEquilibrium$H_StressMuPlus)-hostEquilibrium$H_StressMuPlus[1])/hostEquilibrium$H_StressMuPlus[1]*100
+
+######
+
+hostMinLambdaNeg <- (min(hostEquilibrium$H_NegativeLambda)-hostEquilibrium$H_NegativeLambda[1])/hostEquilibrium$H_NegativeLambda[1]*100
+hostMaxLambdaNeg <- (max(hostEquilibrium$H_NegativeLambda)-hostEquilibrium$H_NegativeLambda[1])/hostEquilibrium$H_NegativeLambda[1]*100
+
+hostMinLambdaNull <- (min(hostEquilibrium$H_NullLambda)-hostEquilibrium$H_NullLambda[1])/hostEquilibrium$H_NullLambda[1]*100
+hostMaxLambdaNull <- (max(hostEquilibrium$H_NullLambda)-hostEquilibrium$H_NullLambda[1])/hostEquilibrium$H_NullLambda[1]*100
+
+hostMinLambdaPos <- (min(hostEquilibrium$H_PositiveLambda)-hostEquilibrium$H_PositiveLambda[1])/hostEquilibrium$H_PositiveLambda[1]*100
+hostMaxLambdaPos <- (max(hostEquilibrium$H_PositiveLambda)-hostEquilibrium$H_PositiveLambda[1])/hostEquilibrium$H_PositiveLambda[1]*100
+
+hostMinLambdaNutrition <- (min(hostEquilibrium$H_NutritionLambda)-hostEquilibrium$H_NutritionLambda[1])/hostEquilibrium$H_NutritionLambda[1]*100
+hostMaxLambdaNutrition <- (max(hostEquilibrium$H_NutritionLambda)-hostEquilibrium$H_NutritionLambda[1])/hostEquilibrium$H_NutritionLambda[1]*100
+
+hostMinLambdaStress <- (min(hostEquilibrium$H_StressLambda)-hostEquilibrium$H_StressLambda[1])/hostEquilibrium$H_StressLambda[1]*100
+hostMaxLambdaStress <- (max(hostEquilibrium$H_StressLambda)-hostEquilibrium$H_StressLambda[1])/hostEquilibrium$H_StressLambda[1]*100
+
+######
+
+hostMinMuMinusNeg <- (min(hostEquilibrium$H_NegativeMuMinus)-hostEquilibrium$H_NegativeMuMinus[1])/hostEquilibrium$H_NegativeMuMinus[1]*100
+hostMaxMuMinusNeg <- (max(hostEquilibrium$H_NegativeMuMinus)-hostEquilibrium$H_NegativeMuMinus[1])/hostEquilibrium$H_NegativeMuMinus[1]*100
+
+hostMinMuMinusNull <- (min(hostEquilibrium$H_NullMuMinus)-hostEquilibrium$H_NullMuMinus[1])/hostEquilibrium$H_NullMuMinus[1]*100
+hostMaxMuMinusNull <- (max(hostEquilibrium$H_NullMuMinus)-hostEquilibrium$H_NullMuMinus[1])/hostEquilibrium$H_NullMuMinus[1]*100
+
+hostMinMuMinusPos <- (min(hostEquilibrium$H_PositiveMuMinus)-hostEquilibrium$H_PositiveMuMinus[1])/hostEquilibrium$H_PositiveMuMinus[1]*100
+hostMaxMuMinusPos <- (max(hostEquilibrium$H_PositiveMuMinus)-hostEquilibrium$H_PositiveMuMinus[1])/hostEquilibrium$H_PositiveMuMinus[1]*100
+
+hostMinMuMinusNutrition <- (min(hostEquilibrium$H_NutritionMuMinus)-hostEquilibrium$H_NutritionMuMinus[1])/hostEquilibrium$H_NutritionMuMinus[1]*100
+hostMaxMuMinusNutrition <- (max(hostEquilibrium$H_NutritionMuMinus)-hostEquilibrium$H_NutritionMuMinus[1])/hostEquilibrium$H_NutritionMuMinus[1]*100
+
+hostMinMuMinusStress <- (min(hostEquilibrium$H_StressMuMinus)-hostEquilibrium$H_StressMuMinus[1])/hostEquilibrium$H_StressMuMinus[1]*100
+hostMaxMuMinusStress <- (max(hostEquilibrium$H_StressMuMinus)-hostEquilibrium$H_StressMuMinus[1])/hostEquilibrium$H_StressMuMinus[1]*100
+
+######################################################################################################
+
+#PpH
+pphMinBNeg <- (min(pphEquilibrium$PpH_NegativeB)-pphEquilibrium$PpH_NegativeB[1])/pphEquilibrium$PpH_NegativeB[1]*100
+pphMaxBNeg <- (max(pphEquilibrium$PpH_NegativeB)-pphEquilibrium$PpH_NegativeB[1])/pphEquilibrium$PpH_NegativeB[1]*100
+
+pphMinBNull <- (min(pphEquilibrium$PpH_NullB)-pphEquilibrium$PpH_NullB[1])/pphEquilibrium$PpH_NullB[1]*100
+pphMaxBNull <- (max(pphEquilibrium$PpH_NullB)-pphEquilibrium$PpH_NullB[1])/pphEquilibrium$PpH_NullB[1]*100
+
+pphMinBPos <- (min(pphEquilibrium$PpH_PositiveB)-pphEquilibrium$PpH_PositiveB[1])/pphEquilibrium$PpH_PositiveB[1]*100
+pphMaxBPos <- (max(pphEquilibrium$PpH_PositiveB)-pphEquilibrium$PpH_PositiveB[1])/pphEquilibrium$PpH_PositiveB[1]*100
+
+pphMinBNutrition <- (min(pphEquilibrium$PpH_NutritionB)-pphEquilibrium$PpH_NutritionB[1])/pphEquilibrium$PpH_NutritionB[1]*100
+pphMaxBNutrition <- (max(pphEquilibrium$PpH_NutritionB)-pphEquilibrium$PpH_NutritionB[1])/pphEquilibrium$PpH_NutritionB[1]*100
+
+pphMinBStress <- (min(pphEquilibrium$PpH_StressB)-pphEquilibrium$PpH_StressB[1])/pphEquilibrium$PpH_StressB[1]*100
+pphMaxBStress <- (max(pphEquilibrium$PpH_StressB)-pphEquilibrium$PpH_StressB[1])/pphEquilibrium$PpH_StressB[1]*100
+
+######
+
+pphMinDNeg <- (min(pphEquilibrium$PpH_NegativeD)-pphEquilibrium$PpH_NegativeD[1])/pphEquilibrium$PpH_NegativeD[1]*100
+pphMaxDNeg <- (max(pphEquilibrium$PpH_NegativeD)-pphEquilibrium$PpH_NegativeD[1])/pphEquilibrium$PpH_NegativeD[1]*100
+
+pphMinDNull <- (min(pphEquilibrium$PpH_NullD)-pphEquilibrium$PpH_NullD[1])/pphEquilibrium$PpH_NullD[1]*100
+pphMaxDNull <- (max(pphEquilibrium$PpH_NullD)-pphEquilibrium$PpH_NullD[1])/pphEquilibrium$PpH_NullD[1]*100
+
+pphMinDPos <- (min(pphEquilibrium$PpH_PositiveD)-pphEquilibrium$PpH_PositiveD[1])/pphEquilibrium$PpH_PositiveD[1]*100
+pphMaxDPos <- (max(pphEquilibrium$PpH_PositiveD)-pphEquilibrium$PpH_PositiveD[1])/pphEquilibrium$PpH_PositiveD[1]*100
+
+pphMinDNutrition <- (min(pphEquilibrium$PpH_NutritionD)-pphEquilibrium$PpH_NutritionD[1])/pphEquilibrium$PpH_NutritionD[1]*100
+pphMaxDNutrition <- (max(pphEquilibrium$PpH_NutritionD)-pphEquilibrium$PpH_NutritionD[1])/pphEquilibrium$PpH_NutritionD[1]*100
+
+pphMinDStress <- (min(pphEquilibrium$PpH_StressD)-pphEquilibrium$PpH_StressD[1])/pphEquilibrium$PpH_StressD[1]*100
+pphMaxDStress <- (max(pphEquilibrium$PpH_StressD)-pphEquilibrium$PpH_StressD[1])/pphEquilibrium$PpH_StressD[1]*100
+
+######
+
+pphMinKcarryCapNeg <- (min(pphEquilibrium$PpH_NegativeKcarryCap)-pphEquilibrium$PpH_NegativeKcarryCap[1])/pphEquilibrium$PpH_NegativeKcarryCap[1]*100
+pphMaxKcarryCapNeg <- (max(pphEquilibrium$PpH_NegativeKcarryCap)-pphEquilibrium$PpH_NegativeKcarryCap[1])/pphEquilibrium$PpH_NegativeKcarryCap[1]*100
+
+pphMinKcarryCapNull <- (min(pphEquilibrium$PpH_NullKcarryCap)-pphEquilibrium$PpH_NullKcarryCap[1])/pphEquilibrium$PpH_NullKcarryCap[1]*100
+pphMaxKcarryCapNull <- (max(pphEquilibrium$PpH_NullKcarryCap)-pphEquilibrium$PpH_NullKcarryCap[1])/pphEquilibrium$PpH_NullKcarryCap[1]*100
+
+pphMinKcarryCapPos <- (min(pphEquilibrium$PpH_PositiveKcarryCap)-pphEquilibrium$PpH_PositiveKcarryCap[1])/pphEquilibrium$PpH_PositiveKcarryCap[1]*100
+pphMaxKcarryCapPos <- (max(pphEquilibrium$PpH_PositiveKcarryCap)-pphEquilibrium$PpH_PositiveKcarryCap[1])/pphEquilibrium$PpH_PositiveKcarryCap[1]*100
+
+pphMinKcarryCapNutrition <- (min(pphEquilibrium$PpH_NutritionKcarryCap)-pphEquilibrium$PpH_NutritionKcarryCap[1])/pphEquilibrium$PpH_NutritionKcarryCap[1]*100
+pphMaxKcarryCapNutrition <- (max(pphEquilibrium$PpH_NutritionKcarryCap)-pphEquilibrium$PpH_NutritionKcarryCap[1])/pphEquilibrium$PpH_NutritionKcarryCap[1]*100
+
+pphMinKcarryCapStress <- (min(pphEquilibrium$PpH_StressKcarryCap)-pphEquilibrium$PpH_StressKcarryCap[1])/pphEquilibrium$PpH_StressKcarryCap[1]*100
+pphMaxKcarryCapStress <- (max(pphEquilibrium$PpH_StressKcarryCap)-pphEquilibrium$PpH_StressKcarryCap[1])/pphEquilibrium$PpH_StressKcarryCap[1]*100
+
+######
+pphMinAlphaNeg <- (min(pphEquilibrium$PpH_NegativeAlpha)-pphEquilibrium$PpH_NegativeAlpha[1])/pphEquilibrium$PpH_NegativeAlpha[1]*100
+pphMaxAlphaNeg <- (max(pphEquilibrium$PpH_NegativeAlpha)-pphEquilibrium$PpH_NegativeAlpha[1])/pphEquilibrium$PpH_NegativeAlpha[1]*100
+
+pphMinAlphaNull <- (min(pphEquilibrium$PpH_NullAlpha)-pphEquilibrium$PpH_NullAlpha[1])/pphEquilibrium$PpH_NullAlpha[1]*100
+pphMaxAlphaNull <- (max(pphEquilibrium$PpH_NullAlpha)-pphEquilibrium$PpH_NullAlpha[1])/pphEquilibrium$PpH_NullAlpha[1]*100
+
+pphMinAlphaPos <- (min(pphEquilibrium$PpH_PositiveAlpha)-pphEquilibrium$PpH_PositiveAlpha[1])/pphEquilibrium$PpH_PositiveAlpha[1]*100
+pphMaxAlphaPos <- (max(pphEquilibrium$PpH_PositiveAlpha)-pphEquilibrium$PpH_PositiveAlpha[1])/pphEquilibrium$PpH_PositiveAlpha[1]*100
+
+pphMinAlphaNutrition <- (min(pphEquilibrium$PpH_NutritionAlpha)-pphEquilibrium$PpH_NutritionAlpha[1])/pphEquilibrium$PpH_NutritionAlpha[1]*100
+pphMaxAlphaNutrition <- (max(pphEquilibrium$PpH_NutritionAlpha)-pphEquilibrium$PpH_NutritionAlpha[1])/pphEquilibrium$PpH_NutritionAlpha[1]*100
+
+pphMinAlphaStress <- (min(pphEquilibrium$PpH_StressAlpha)-pphEquilibrium$PpH_StressAlpha[1])/pphEquilibrium$PpH_StressAlpha[1]*100
+pphMaxAlphaStress <- (max(pphEquilibrium$PpH_StressAlpha)-pphEquilibrium$PpH_StressAlpha[1])/pphEquilibrium$PpH_StressAlpha[1]*100
+
+######
+
+pphMinMuPlusNeg <- (min(pphEquilibrium$PpH_NegativeMuPlus)-pphEquilibrium$PpH_NegativeMuPlus[1])/pphEquilibrium$PpH_NegativeMuPlus[1]*100
+pphMaxMuPlusNeg <- (max(pphEquilibrium$PpH_NegativeMuPlus)-pphEquilibrium$PpH_NegativeMuPlus[1])/pphEquilibrium$PpH_NegativeMuPlus[1]*100
+
+pphMinMuPlusNull <- (min(pphEquilibrium$PpH_NullMuPlus)-pphEquilibrium$PpH_NullMuPlus[1])/pphEquilibrium$PpH_NullMuPlus[1]*100
+pphMaxMuPlusNull <- (max(pphEquilibrium$PpH_NullMuPlus)-pphEquilibrium$PpH_NullMuPlus[1])/pphEquilibrium$PpH_NullMuPlus[1]*100
+
+pphMinMuPlusPos <- (min(pphEquilibrium$PpH_PositiveMuPlus)-pphEquilibrium$PpH_PositiveMuPlus[1])/pphEquilibrium$PpH_PositiveMuPlus[1]*100
+pphMaxMuPlusPos <- (max(pphEquilibrium$PpH_PositiveMuPlus)-pphEquilibrium$PpH_PositiveMuPlus[1])/pphEquilibrium$PpH_PositiveMuPlus[1]*100
+
+pphMinMuPlusNutrition <- (min(pphEquilibrium$PpH_NutritionMuPlus)-pphEquilibrium$PpH_NutritionMuPlus[1])/pphEquilibrium$PpH_NutritionMuPlus[1]*100
+pphMaxMuPlusNutrition <- (max(pphEquilibrium$PpH_NutritionMuPlus)-pphEquilibrium$PpH_NutritionMuPlus[1])/pphEquilibrium$PpH_NutritionMuPlus[1]*100
+
+pphMinMuPlusStress <- (min(pphEquilibrium$PpH_StressMuPlus)-pphEquilibrium$PpH_StressMuPlus[1])/pphEquilibrium$PpH_StressMuPlus[1]*100
+pphMaxMuPlusStress <- (max(pphEquilibrium$PpH_StressMuPlus)-pphEquilibrium$PpH_StressMuPlus[1])/pphEquilibrium$PpH_StressMuPlus[1]*100
+
+######
+
+pphMinLambdaNeg <- (min(pphEquilibrium$PpH_NegativeLambda)-pphEquilibrium$PpH_NegativeLambda[1])/pphEquilibrium$PpH_NegativeLambda[1]*100
+pphMaxLambdaNeg <- (max(pphEquilibrium$PpH_NegativeLambda)-pphEquilibrium$PpH_NegativeLambda[1])/pphEquilibrium$PpH_NegativeLambda[1]*100
+
+pphMinLambdaNull <- (min(pphEquilibrium$PpH_NullLambda)-pphEquilibrium$PpH_NullLambda[1])/pphEquilibrium$PpH_NullLambda[1]*100
+pphMaxLambdaNull <- (max(pphEquilibrium$PpH_NullLambda)-pphEquilibrium$PpH_NullLambda[1])/pphEquilibrium$PpH_NullLambda[1]*100
+
+pphMinLambdaPos <- (min(pphEquilibrium$PpH_PositiveLambda)-pphEquilibrium$PpH_PositiveLambda[1])/pphEquilibrium$PpH_PositiveLambda[1]*100
+pphMaxLambdaPos <- (max(pphEquilibrium$PpH_PositiveLambda)-pphEquilibrium$PpH_PositiveLambda[1])/pphEquilibrium$PpH_PositiveLambda[1]*100
+
+pphMinLambdaNutrition <- (min(pphEquilibrium$PpH_NutritionLambda)-pphEquilibrium$PpH_NutritionLambda[1])/pphEquilibrium$PpH_NutritionLambda[1]*100
+pphMaxLambdaNutrition <- (max(pphEquilibrium$PpH_NutritionLambda)-pphEquilibrium$PpH_NutritionLambda[1])/pphEquilibrium$PpH_NutritionLambda[1]*100
+
+pphMinLambdaStress <- (min(pphEquilibrium$PpH_StressLambda)-pphEquilibrium$PpH_StressLambda[1])/pphEquilibrium$PpH_StressLambda[1]*100
+pphMaxLambdaStress <- (max(pphEquilibrium$PpH_StressLambda)-pphEquilibrium$PpH_StressLambda[1])/pphEquilibrium$PpH_StressLambda[1]*100
+
+######
+
+pphMinMuMinusNeg <- (min(pphEquilibrium$PpH_NegativeMuMinus)-pphEquilibrium$PpH_NegativeMuMinus[1])/pphEquilibrium$PpH_NegativeMuMinus[1]*100
+pphMaxMuMinusNeg <- (max(pphEquilibrium$PpH_NegativeMuMinus)-pphEquilibrium$PpH_NegativeMuMinus[1])/pphEquilibrium$PpH_NegativeMuMinus[1]*100
+
+pphMinMuMinusNull <- (min(pphEquilibrium$PpH_NullMuMinus)-pphEquilibrium$PpH_NullMuMinus[1])/pphEquilibrium$PpH_NullMuMinus[1]*100
+pphMaxMuMinusNull <- (max(pphEquilibrium$PpH_NullMuMinus)-pphEquilibrium$PpH_NullMuMinus[1])/pphEquilibrium$PpH_NullMuMinus[1]*100
+
+pphMinMuMinusPos <- (min(pphEquilibrium$PpH_PositiveMuMinus)-pphEquilibrium$PpH_PositiveMuMinus[1])/pphEquilibrium$PpH_PositiveMuMinus[1]*100
+pphMaxMuMinusPos <- (max(pphEquilibrium$PpH_PositiveMuMinus)-pphEquilibrium$PpH_PositiveMuMinus[1])/pphEquilibrium$PpH_PositiveMuMinus[1]*100
+
+pphMinMuMinusNutrition <- (min(pphEquilibrium$PpH_NutritionMuMinus)-pphEquilibrium$PpH_NutritionMuMinus[1])/pphEquilibrium$PpH_NutritionMuMinus[1]*100
+pphMaxMuMinusNutrition <- (max(pphEquilibrium$PpH_NutritionMuMinus)-pphEquilibrium$PpH_NutritionMuMinus[1])/pphEquilibrium$PpH_NutritionMuMinus[1]*100
+
+pphMinMuMinusStress <- (min(pphEquilibrium$PpH_StressMuMinus)-pphEquilibrium$PpH_StressMuMinus[1])/pphEquilibrium$PpH_StressMuMinus[1]*100
+pphMaxMuMinusStress <- (max(pphEquilibrium$PpH_StressMuMinus)-pphEquilibrium$PpH_StressMuMinus[1])/pphEquilibrium$PpH_StressMuMinus[1]*100
+
+```
+
+```{r - Selecting greatest change from unsubsidized equilibrium by comparing magnitude of Min and Max Values}
+#Function that compares magnitude of min and max values. Selects the value with highest magnitude % change from unsubsidized equilibrium.
+percentChangeComparison <- function(minValue, maxValue) {
+  if (abs(minValue) > abs(maxValue)){
+    return(minValue)
+  } else if (abs(minValue) < abs(maxValue)){
+    return(maxValue)
+  } else {
+    return(c(minValue, maxValue)) 
+  } 
+}
+
+#Highest magnitude % Change from unsubsidized scenario to R=2 for all scenarios
+hostChangeBNeg <- percentChangeComparison(hostMinBNeg, hostMaxBNeg)
+hostChangeBNull <- percentChangeComparison(hostMinBNull, hostMaxBNull)
+hostChangeBPos <- percentChangeComparison(hostMinBPos, hostMaxBPos)
+hostChangeBNutrition <- percentChangeComparison(hostMinBNutrition, hostMaxBNutrition)
+hostChangeBStress <- percentChangeComparison(hostMinBStress, hostMaxBStress)
+
+hostChangeDNeg <- percentChangeComparison(hostMinDNeg, hostMaxDNeg)
+hostChangeDNull <- percentChangeComparison(hostMinDNull, hostMaxDNull)
+hostChangeDPos <- percentChangeComparison(hostMinDPos, hostMaxDPos)
+hostChangeDNutrition <- percentChangeComparison(hostMinDNutrition, hostMaxDNutrition)
+hostChangeDStress <- percentChangeComparison(hostMinDStress, hostMaxDStress)
+
+hostChangeKcarryCapNeg <- percentChangeComparison(hostMinKcarryCapNeg, hostMaxKcarryCapNeg)
+hostChangeKcarryCapNull <- percentChangeComparison(hostMinKcarryCapNull, hostMaxKcarryCapNull)
+hostChangeKcarryCapPos <- percentChangeComparison(hostMinKcarryCapPos, hostMaxKcarryCapPos)
+hostChangeKcarryCapNutrition <- percentChangeComparison(hostMinKcarryCapNutrition, hostMaxKcarryCapNutrition)
+hostChangeKcarryCapStress <- percentChangeComparison(hostMinKcarryCapStress, hostMaxKcarryCapStress)
+
+hostChangeAlphaNeg <- percentChangeComparison(hostMinAlphaNeg, hostMaxAlphaNeg)
+hostChangeAlphaNull <- percentChangeComparison(hostMinAlphaNull, hostMaxAlphaNull)
+hostChangeAlphaPos <- percentChangeComparison(hostMinAlphaPos, hostMaxAlphaPos)
+hostChangeAlphaNutrition <- percentChangeComparison(hostMinAlphaNutrition, hostMaxAlphaNutrition)
+hostChangeAlphaStress <- percentChangeComparison(hostMinAlphaStress, hostMaxAlphaStress)
+
+hostChangeMuPlusNeg <- percentChangeComparison(hostMinMuPlusNeg, hostMaxMuPlusNeg)
+hostChangeMuPlusNull <- percentChangeComparison(hostMinMuPlusNull, hostMaxMuPlusNull)
+hostChangeMuPlusPos <- percentChangeComparison(hostMinMuPlusPos, hostMaxMuPlusPos)
+hostChangeMuPlusNutrition <- percentChangeComparison(hostMinMuPlusNutrition, hostMaxMuPlusNutrition)
+hostChangeMuPlusStress <- percentChangeComparison(hostMinMuPlusStress, hostMaxMuPlusStress)
+
+hostChangeLambdaNeg <- percentChangeComparison(hostMinLambdaNeg, hostMaxLambdaNeg)
+hostChangeLambdaNull <- percentChangeComparison(hostMinLambdaNull, hostMaxLambdaNull)
+hostChangeLambdaPos <- percentChangeComparison(hostMinLambdaPos, hostMaxLambdaPos)
+hostChangeLambdaNutrition <- percentChangeComparison(hostMinLambdaNutrition, hostMaxLambdaNutrition)
+hostChangeLambdaStress <- percentChangeComparison(hostMinLambdaStress, hostMaxLambdaStress)
+
+hostChangeMuMinusNeg <- percentChangeComparison(hostMinMuMinusNeg, hostMaxMuMinusNeg)
+hostChangeMuMinusNull <- percentChangeComparison(hostMinMuMinusNull, hostMaxMuMinusNull)
+hostChangeMuMinusPos <- percentChangeComparison(hostMinMuMinusPos, hostMaxMuMinusPos)
+hostChangeMuMinusNutrition <- percentChangeComparison(hostMinMuMinusNutrition, hostMaxMuMinusNutrition)
+hostChangeMuMinusStress <- percentChangeComparison(hostMinMuMinusStress, hostMaxMuMinusStress)
+
+################################################################################
+
+pphChangeBNeg <- percentChangeComparison(pphMinBNeg, pphMaxBNeg)
+pphChangeBNull <- percentChangeComparison(pphMinBNull, pphMaxBNull)
+pphChangeBPos <- percentChangeComparison(pphMinBPos, pphMaxBPos)
+pphChangeBNutrition <- percentChangeComparison(pphMinBNutrition, pphMaxBNutrition)
+pphChangeBStress <- percentChangeComparison(pphMinBStress, pphMaxBStress)
+
+pphChangeDNeg <- percentChangeComparison(pphMinDNeg, pphMaxDNeg)
+pphChangeDNull <- percentChangeComparison(pphMinDNull, pphMaxDNull)
+pphChangeDPos <- percentChangeComparison(pphMinDPos, pphMaxDPos)
+pphChangeDNutrition <- percentChangeComparison(pphMinDNutrition, pphMaxDNutrition)
+pphChangeDStress <- percentChangeComparison(pphMinDStress, pphMaxDStress)
+
+pphChangeKcarryCapNeg <- percentChangeComparison(pphMinKcarryCapNeg, pphMaxKcarryCapNeg)
+pphChangeKcarryCapNull <- percentChangeComparison(pphMinKcarryCapNull, pphMaxKcarryCapNull)
+pphChangeKcarryCapPos <- percentChangeComparison(pphMinKcarryCapPos, pphMaxKcarryCapPos)
+pphChangeKcarryCapNutrition <- percentChangeComparison(pphMinKcarryCapNutrition, pphMaxKcarryCapNutrition)
+pphChangeKcarryCapStress <- percentChangeComparison(pphMinKcarryCapStress, pphMaxKcarryCapStress)
+
+pphChangeAlphaNeg <- percentChangeComparison(pphMinAlphaNeg, pphMaxAlphaNeg)
+pphChangeAlphaNull <- percentChangeComparison(pphMinAlphaNull, pphMaxAlphaNull)
+pphChangeAlphaPos <- percentChangeComparison(pphMinAlphaPos, pphMaxAlphaPos)
+pphChangeAlphaNutrition <- percentChangeComparison(pphMinAlphaNutrition, pphMaxAlphaNutrition)
+pphChangeAlphaStress <- percentChangeComparison(pphMinAlphaStress, pphMaxAlphaStress)
+
+pphChangeMuPlusNeg <- percentChangeComparison(pphMinMuPlusNeg, pphMaxMuPlusNeg)
+pphChangeMuPlusNull <- percentChangeComparison(pphMinMuPlusNull, pphMaxMuPlusNull)
+pphChangeMuPlusPos <- percentChangeComparison(pphMinMuPlusPos, pphMaxMuPlusPos)
+pphChangeMuPlusNutrition <- percentChangeComparison(pphMinMuPlusNutrition, pphMaxMuPlusNutrition)
+pphChangeMuPlusStress <- percentChangeComparison(pphMinMuPlusStress, pphMaxMuPlusStress)
+
+pphChangeLambdaNeg <- percentChangeComparison(pphMinLambdaNeg, pphMaxLambdaNeg)
+pphChangeLambdaNull <- percentChangeComparison(pphMinLambdaNull, pphMaxLambdaNull)
+pphChangeLambdaPos <- percentChangeComparison(pphMinLambdaPos, pphMaxLambdaPos)
+pphChangeLambdaNutrition <- percentChangeComparison(pphMinLambdaNutrition, pphMaxLambdaNutrition)
+pphChangeLambdaStress <- percentChangeComparison(pphMinLambdaStress, pphMaxLambdaStress)
+
+pphChangeMuMinusNeg <- percentChangeComparison(pphMinMuMinusNeg, pphMaxMuMinusNeg)
+pphChangeMuMinusNull <- percentChangeComparison(pphMinMuMinusNull, pphMaxMuMinusNull)
+pphChangeMuMinusPos <- percentChangeComparison(pphMinMuMinusPos, pphMaxMuMinusPos)
+pphChangeMuMinusNutrition <- percentChangeComparison(pphMinMuMinusNutrition, pphMaxMuMinusNutrition)
+pphChangeMuMinusStress <- percentChangeComparison(pphMinMuMinusStress, pphMaxMuMinusStress)
+
+```
+
+```{r - Creating hostsChange and pphChange dataframes}
+#All values are the result of a model run for 60 months at which point it reaches an Equilibrium. These values are the % Change of the Equilibrium when Resources=2 (resources have twice the effect) compared to the Equilibrium when Resources=1 (unsubsidized). A positive value implies an increase whereas a negative value implies a decrease.
+
+hostsChange <- data.frame(Value=c(hostChangeBNeg, hostChangeBNull, hostChangeBPos, hostChangeBNutrition, hostChangeBStress, hostChangeDNeg, hostChangeDNull, hostChangeDPos,
+                                  hostChangeDNutrition, hostChangeDStress, hostChangeKcarryCapNeg, hostChangeKcarryCapNull, hostChangeKcarryCapPos, hostChangeKcarryCapNutrition,
+                                  hostChangeKcarryCapStress, hostChangeAlphaNeg, hostChangeAlphaNull, hostChangeAlphaPos, hostChangeAlphaNutrition, hostChangeAlphaStress,
+                                  hostChangeMuPlusNeg, hostChangeMuPlusNull, hostChangeMuPlusPos, hostChangeMuPlusNutrition, hostChangeMuPlusStress, hostChangeLambdaNeg,
+                                  hostChangeLambdaNull, hostChangeLambdaPos, hostChangeLambdaNutrition, hostChangeLambdaStress, hostChangeMuMinusNeg, hostChangeMuMinusNull,
+                                  hostChangeMuMinusPos, hostChangeMuMinusNutrition, hostChangeMuMinusStress),
+                          ResEffect=c("A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress", "A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress",
+                                      "A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress", "A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress",
+                                      "A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress", "A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress",
+                                      "A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress"),
+                          Parameter=c("A_b", "A_b", "A_b", "A_b", "A_b", "B_d", "B_d", "B_d", "B_d", "B_d", "C_Hmax", "C_Hmax", "C_Hmax", "C_Hmax", "C_Hmax", "D_\U03B1",
+                                      "D_\U03B1", "D_\U03B1", "D_\U03B1", "D_\U03B1", "E_\U03BC+", "E_\U03BC+", "E_\U03BC+", "E_\U03BC+", "E_\U03BC+", "F_\U03BB",
+                                      "F_\U03BB", "F_\U03BB", "F_\U03BB", "F_\U03BB", "G_\U03BC-", "G_\U03BC-", "G_\U03BC-", "G_\U03BC-", "G_\U03BC-"),
+                          Group=c("Host Demography", "Host Demography", "Host Demography", "Host Demography", "Host Demography", "Host Demography", "Host Demography", 
+                                  "Host Demography", "Host Demography", "Host Demography", "Host Demography", "Host Demography", "Host Demography", "Host Demography", 
+                                  "Host Demography", "Host Immune System", "Host Immune System", "Host Immune System", "Host Immune System", "Host Immune System", 
+                                  "Host Immune System", "Host Immune System", "Host Immune System", "Host Immune System", "Host Immune System", "Parasite Demography",
+                                  "Parasite Demography", "Parasite Demography", "Parasite Demography", "Parasite Demography", "Parasite Demography", "Parasite Demography",
+                                  "Parasite Demography", "Parasite Demography", "Parasite Demography"),
+                          GraphOrder=c("1", "1", "1", "1", "1", "2", "2", "2", "2", "2", "3", "3", "3", "3", "3", "4", "4", "4", "4", "4", "5", "5", "5", "5", "5", "6", "6", "6", "6", "6", "7", "7", "7", "7", "7")
+                          )
+
+
+#alpha = \U03B1
+#mu (both) = \U03BC
+#lambda = \U03BB
+
+
+pphChange <- data.frame(Value=c(pphChangeBNeg, pphChangeBNull, pphChangeBPos, pphChangeBNutrition, pphChangeBStress, pphChangeDNeg, pphChangeDNull, pphChangeDPos,
+                                  pphChangeDNutrition, pphChangeDStress, pphChangeKcarryCapNeg, pphChangeKcarryCapNull, pphChangeKcarryCapPos, pphChangeKcarryCapNutrition,
+                                  pphChangeKcarryCapStress, pphChangeAlphaNeg, pphChangeAlphaNull, pphChangeAlphaPos, pphChangeAlphaNutrition, pphChangeAlphaStress,
+                                  pphChangeMuPlusNeg, pphChangeMuPlusNull, pphChangeMuPlusPos, pphChangeMuPlusNutrition, pphChangeMuPlusStress, pphChangeLambdaNeg,
+                                  pphChangeLambdaNull, pphChangeLambdaPos, pphChangeLambdaNutrition, pphChangeLambdaStress, pphChangeMuMinusNeg, pphChangeMuMinusNull,
+                                  pphChangeMuMinusPos, pphChangeMuMinusNutrition, pphChangeMuMinusStress),
+                          ResEffect=c("A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress", "A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress",
+                                      "A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress", "A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress",
+                                      "A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress", "A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress",
+                                      "A_Negative", "C_Null", "D_Positive", "B_Nutrition", "E_Stress"),
+                          Parameter=c("A_b", "A_b", "A_b", "A_b", "A_b", "B_d", "B_d", "B_d", "B_d", "B_d", "C_Hmax", "C_Hmax", "C_Hmax", "C_Hmax", "C_Hmax", "D_\U03B1",
+                                      "D_\U03B1", "D_\U03B1", "D_\U03B1", "D_\U03B1", "E_\U03BC+", "E_\U03BC+", "E_\U03BC+", "E_\U03BC+", "E_\U03BC+", "F_\U03BB",
+                                      "F_\U03BB", "F_\U03BB", "F_\U03BB", "F_\U03BB", "G_\U03BC-", "G_\U03BC-", "G_\U03BC-", "G_\U03BC-", "G_\U03BC-"),
+                          Group=c("Host Demography", "Host Demography", "Host Demography", "Host Demography", "Host Demography", "Host Demography", "Host Demography", 
+                                  "Host Demography", "Host Demography", "Host Demography", "Host Demography", "Host Demography", "Host Demography", "Host Demography", 
+                                  "Host Demography", "Host Immune System", "Host Immune System", "Host Immune System", "Host Immune System", "Host Immune System", 
+                                  "Host Immune System", "Host Immune System", "Host Immune System", "Host Immune System", "Host Immune System", "Parasite Demography",
+                                  "Parasite Demography", "Parasite Demography", "Parasite Demography", "Parasite Demography", "Parasite Demography", "Parasite Demography",
+                                  "Parasite Demography", "Parasite Demography", "Parasite Demography"),
+                          GraphOrder=c("1", "1", "1", "1", "1", "2", "2", "2", "2", "2", "3", "3", "3", "3", "3", "4", "4", "4", "4", "4", "5", "5", "5", "5", "5", "6", "6", "6", "6", "6", "7", "7", "7", "7", "7")
+                          )
+
+
+
+
+```
+
+```{r - Subsetting hostsChange and pphChange by ResEffect (for graphing)}
+#Subsetting hostsChange dataset
+hostsChangeNull <- subset(hostsChange, ResEffect=='C_Null')
+hostsChangeNegative <- subset(hostsChange, ResEffect=='A_Negative')
+hostsChangePositive <- subset(hostsChange, ResEffect=='D_Positive')
+hostsChangeNutrition <- subset(hostsChange, ResEffect=='B_Nutrition')
+hostsChangeStress <- subset(hostsChange, ResEffect=='E_Stress')
+hostsChangeBetaDecrease <- subset(hostsChange, ResEffect=="C_Null" | ResEffect=="A_Negative" | ResEffect=="B_Nutrition")
+hostsChangeBetaIncrease <- subset(hostsChange, ResEffect=="C_Null" | ResEffect=="D_Positive" | ResEffect=="E_Stress")
+
+#Subsetting pphChange dataset
+pphChangeNull <- subset(pphChange, ResEffect=='C_Null')
+pphChangeNegative <- subset(pphChange, ResEffect=='A_Negative')
+pphChangePositive <- subset(pphChange, ResEffect=='D_Positive')
+pphChangeNutrition <- subset(pphChange, ResEffect=='B_Nutrition')
+pphChangeStress <- subset(pphChange, ResEffect=='E_Stress')
+pphChangeBetaDecrease <- subset(pphChange, ResEffect=="C_Null" | ResEffect=="A_Negative" | ResEffect=="B_Nutrition")
+pphChangeBetaIncrease <- subset(pphChange, ResEffect=="C_Null" | ResEffect=="D_Positive" | ResEffect=="E_Stress")
+
+
+legendDataframeFake <- data.frame(X_Value=c(1, 1, 2, 2, 3, 3, 4, 4, 5, 5),
+                          Y_Value=c(1, 1, 2, 2, 3, 3, 4, 4, 5, 5),
+                          ResEffect=c("Negative", "Negative", "Null", "Null", "Nutrition", "Nutrition", "Positive", "Positive", "Stress", "Stress"))
+
+```
+
+```{r - Bargraph - Group by beta effect negative+Nutrition && positive+stress (2x2 panel with legend)}
+HostBetaDecreaseBarGraph <- ggplot() +
+  geom_bar(data=hostsChangeBetaDecrease, aes(x=Parameter, y=Value, fill=ResEffect), show.legend=FALSE, position="dodge", width=0.65, stat="identity", size=3) +
+  scale_fill_manual(name="Resource Effect on Infection Parameters", 
+                     values=c("lightcoral", "darkgreen", "black"), #This order because ResEffect names are A_Negative, B_Nutrition, C_Null
+                     labels=c("Decreased Parasite Encounter & Increased Heterogeneity", "Decreased Parasite Encounter & Heterogeneity", "No effect of resources")) +
+  geom_hline(yintercept=0, linetype="dashed", size=1) +
+  labs(x = expression(bold("")),
+       y = expression(bold(" % Change in Host Population (H)"))) +
+  scale_x_discrete(breaks=c("A_b", "B_d", "C_Hmax", "D_\U03B1", "E_\U03BC+", "F_\U03BB", "G_\U03BC-"),
+                   labels=c("b+", "d-", "Hmax+", "\U03B1-", "\U03BC+", "\U03BB+", "\U03BC-")) +
+  scale_y_continuous(breaks=seq(-70, 110, by=20)) +
+  expand_limits(y=c(-70,110)) +  
+  theme_classic() +
+  theme(text=element_text(family='serif')) + #sets Font Text to Times New Roman
+  theme(axis.text.x=element_text(size=10)) + #changing Font size for text
+  theme(axis.title.x=element_text(size=12)) + #changing Font size for axis title
+  theme(axis.text.x=element_text(color="black")) +
+  theme(axis.text.y=element_text(size=10)) +
+  theme(axis.title.y=element_text(size=12)) + 
+  theme(axis.text.y=element_text(color="black")) +
+  annotate("text", x=1, y=110, label="(a)", size=5) #Adding letter to be referenced for figure captions
+
+
+HostBetaIncreaseBarGraph <- ggplot() +
+  geom_bar(data=hostsChangeBetaIncrease, aes(x=Parameter, y=Value, fill=ResEffect), show.legend=FALSE, position="dodge", width=0.65, stat="identity", size=3) +
+  scale_fill_manual(name="Resource Effect on Infection Parameters", 
+                     values=c("black", "lightblue", "purple"), #This order because ResEffect names are C_Null, D_Positive, E_Stress
+                     labels=c("No effect of resources", "Increased Parasite Encounter & Decreased Heterogeneity", "Increased Parasite Encounter & Heterogeneity")) +
+  geom_hline(yintercept=0, linetype="dashed", size=1) +
+  labs(x = expression(bold("")),
+       y = expression(bold(""))) +
+  scale_x_discrete(breaks=c("A_b", "B_d", "C_Hmax", "D_\U03B1", "E_\U03BC+", "F_\U03BB", "G_\U03BC-"),
+                   labels=c("b+", "d-", "Hmax+", "\U03B1-", "\U03BC+", "\U03BB+", "\U03BC-")) +
+  scale_y_continuous(breaks=seq(-70, 110, by=20)) +
+  expand_limits(y=c(-70,110)) +  
+  theme_classic() +
+  theme(text=element_text(family='serif')) + #sets Font Text to Times New Roman
+  theme(axis.text.x=element_text(size=10)) + #changing Font size for text
+  theme(axis.title.x=element_text(size=12)) + #changing Font size for axis title
+  theme(axis.text.x=element_text(color="black")) +
+  theme(axis.text.y=element_text(size=10)) +
+  theme(axis.title.y=element_text(size=12)) + 
+  theme(axis.text.y=element_text(color="black")) +
+  annotate("text", x=1, y=110, label="(b)", size=5) #Adding letter to be referenced for figure captions
+
+
+PphBetaDecreaseBarGraph <- ggplot() +
+  geom_bar(data=pphChangeBetaDecrease, aes(x=Parameter, y=Value, fill=ResEffect), show.legend=FALSE, position="dodge", width=0.65, stat="identity", size=3) +
+  scale_fill_manual(name="Resource Effect on Infection Parameters", 
+                     values=c("lightcoral", "darkgreen", "black"), #This order because ResEffect names are A_Negative, B_Nutrition, C_Null
+                     labels=c("Decreased parasite encounter & increased heterogeneity", "Decreased parasite encounter & heterogeneity", "No effect of resources")) +
+  geom_hline(yintercept=0, linetype="dashed", size=1) +
+  labs(x = expression(bold("Parameter Affected")),
+       y = expression(bold(" % Change in Parasite Abundance (P/H)"))) +
+  scale_x_discrete(breaks=c("A_b", "B_d", "C_Hmax", "D_\U03B1", "E_\U03BC+", "F_\U03BB", "G_\U03BC-"),
+                   labels=c("b+", "d-", "Hmax+", "\U03B1-", "\U03BC+", "\U03BB+", "\U03BC-")) +
+  scale_y_continuous(breaks=seq(-100, 400, by=100)) +
+  expand_limits(y=c(-100,400)) +
+  theme_classic() +
+  theme(text=element_text(family='serif')) + #sets Font Text to Times New Roman
+  theme(axis.text.x=element_text(size=10)) +
+  theme(axis.title.x=element_text(size=12)) +
+  theme(axis.text.x=element_text(color="black")) +
+  theme(axis.text.y=element_text(size=10)) +
+  theme(axis.title.y=element_text(size=12)) + 
+  theme(axis.text.y=element_text(color="black")) +
+  annotate("text", x=1, y=400, label="(c)", size=5)
+
+  
+PphBetaIncreaseBarGraph <- ggplot() +
+  geom_bar(data=pphChangeBetaIncrease, aes(x=Parameter, y=Value, fill=ResEffect), show.legend=FALSE, position="dodge", width=0.65, stat="identity", size=3) +
+  scale_fill_manual(name="Resource Effect on Infection Parameters", 
+                     values=c("black", "lightblue", "purple"), #This order because ResEffect names are C_Null, D_Positive, E_Stress
+                     labels=c("No effect of resources", "Increased parasite encounter & decreased heterogeneity", "Increased parasite encounter & heterogeneity")) +
+  geom_hline(yintercept=0, linetype="dashed", size=1) +
+  labs(x = expression(bold("Parameter Affected")),
+       y = expression(bold(""))) +
+  scale_x_discrete(breaks=c("A_b", "B_d", "C_Hmax", "D_\U03B1", "E_\U03BC+", "F_\U03BB", "G_\U03BC-"),
+                   labels=c("b+", "d-", "Hmax+", "\U03B1-", "\U03BC+", "\U03BB+", "\U03BC-")) +
+  scale_y_continuous(breaks=seq(-100, 400, by=100)) +
+  expand_limits(y=c(-100,400)) +
+  theme_classic() +
+  theme(text=element_text(family='serif')) + #sets Font Text to Times New Roman
+  theme(axis.text.x=element_text(size=10)) +
+  theme(axis.title.x=element_text(size=12)) +
+  theme(axis.text.x=element_text(color="black")) +
+  theme(axis.text.y=element_text(size=10)) +
+  theme(axis.title.y=element_text(size=12)) + 
+  theme(axis.text.y=element_text(color="black")) +
+  annotate("text", x=1, y=400, label="(d)", size=5)
+
+
+legendPlotAllBars <- ggplot(data=legendDataframeFake) + 
+  geom_bar(aes(x=X_Value, y=Y_Value, fill=ResEffect), stat="identity") +
+  scale_fill_manual(name="Resource Effect on Infection Parameters", 
+                     values=c("lightcoral", "darkgreen", "black", "lightblue", "purple"), 
+                     labels=c("Decreased parasite encounter & increased heterogeneity (\U03B2-, k-)", "Decreased parasite encounter & heterogeneity (\U03B2-, k+)", "No effect of resources", "Increased parasite encounter & decreased heterogeneity (\U03B2+, k+)", "Increased parasite encounter & heterogeneity (\U03B2+, k-)")) +
+  guides(fill = guide_legend(override.aes = list(size = 1))) + #changes size of bars in legend
+  theme_bw()
+
+#Taking legends from graphs with fake data
+legendPlotBars <- cowplot::get_legend(legendPlotAllBars)
+
+#Plotting just the legend
+legendPlotBars <- plot_grid(legendPlotBars)
+
+#Graphing 2x3 (Export as 800x800 and 1200x800 and 800x1000)
+barGraphNoLegend <- plot_grid(HostBetaDecreaseBarGraph, HostBetaIncreaseBarGraph, PphBetaDecreaseBarGraph, PphBetaIncreaseBarGraph, ncol=2, nrow=2, labels=NULL)
+plot_grid(HostBetaDecreaseBarGraph, HostBetaIncreaseBarGraph, legendPlotBars, PphBetaDecreaseBarGraph, PphBetaIncreaseBarGraph, ncol=3, nrow=2, labels=NULL)
+
+plot_grid(HostBetaDecreaseBarGraph, HostBetaIncreaseBarGraph, PphBetaDecreaseBarGraph, PphBetaIncreaseBarGraph, legendPlotBars, ncol=2, nrow=3, labels=NULL)
+
+#Graphs + Legends will be inset outside of R.
+ggsave(filename="fullBarGraphNoLegend.png", plot=barGraphNoLegend, path="E:/00000 RESEARCH/Graphs/Macroparasite Graphs/Figure 3 (Percentage Change from Unsubsidized Equilibrium Bar Graphs)", width=6.5, height=6.5, units="in", dpi=600)
+
+ggsave(filename="fullLegend.png", plot=legendPlotBars, path="E:/00000 RESEARCH/Graphs/Macroparasite Graphs/Figure 3 (Percentage Change from Unsubsidized Equilibrium Bar Graphs)", width=4, height=1.75, dpi=600)
+
+```
+
+```{r - Saving Bargraphs}
+ggsave(filename="barGraphNoLegend.png", plot=barGraphNoLegend, path="E:/00000 RESEARCH/Graphs/Macroparasite Graphs/Figure 3 (Percentage Change from Unsubsidized Equilibrium Bar Graphs)", width=7.5, height=7.5, units="in", dpi=300)
+
+```
+

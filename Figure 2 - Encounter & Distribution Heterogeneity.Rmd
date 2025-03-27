@@ -1,0 +1,529 @@
+---
+title: "Figure 2"
+author: "Brendan Haile"
+date: '2025-03-27'
+output:
+  pdf_document: default
+---
+
+
+```{r Packages}
+library(deSolve)
+library(tidyverse)
+library(cowplot)
+library(ggplot2)
+library(magick)
+library(png)
+```
+
+```{r Function - Logistic Growth}
+#Recreating the macroparasite function but with logistic growth
+
+# list of parameters for quick reference
+# b = per capita host birth rate
+# d = per capita host mortality
+# alpha = additional per capita host mortality due to parasite burden (P/H)*H
+# beta = transmission (ingestion) rate of parasites by host
+# lambda = external parasite production rate (per parasite)
+# gamma = per capita loss rate of entl parasite stages
+# mu = parasite mortality within hosts
+# k = overdispersion parameter; measures parasite Dispersion (low k = highly aggregated in few hosts, high k = equally distributed among hosts)
+
+macroParasiteLogistic <- function(t, x, parameters){
+  H <- x[1]
+  P <- x[2]
+  with(                                   
+       as.list(params),                   
+       {                                  
+         dH <- (b-d)*H*(1-H/KcarryCap)-alpha*P
+         dP <- (beta*H*lambda*P)/(gamma+beta*H) - P*(d+mu+alpha) - (P*P*alpha*(k+1))/(k*H)
+         dXlist <- c(dH,dP)                
+         list(dXlist)                         
+       }
+       )
+}
+```
+
+```{r - DETER + Berding MONTHLY - Starting Information - xstart, seasons, time, and resource}
+#Setting resource availability
+resource <- seq(1, 2, by=0.05)
+
+xstart <- c(H=69, P=1)
+monthsBreeding <- (12*5) #One year is 12 months
+time <- seq(1,monthsBreeding,by=1)
+
+#Parameter Values
+b0 <- 0.5980              #monthly rate = 0.5980 
+d0 <- 1/5                 #monthly rate = 1/5 
+alpha0 <- 7.94*10^(-3)    #monthly rate = 7.94*10^(-3) calculated from avg_daily_rate*365/12 [FROM BERDING]
+beta0 <- 5.2*10^(-8)      #monthly rate = 5.2*10^(-8) 
+KcarryCap0 <- 70          #value = 70 per Hectare (100x100m grid) 
+lambda0 <- 90000          #monthly rate = 90000 
+gamma0 <- 1/3             #monthly rate = 1/3
+mu0 <- 0.375              #monthly rate = 0.375
+k0 <- 1                   #value = 1
+
+#Varying the parameters
+br = b0*resource
+dr = d0/resource
+alphar = alpha0/resource
+betarPositive = beta0*resource
+betarNegative = beta0/resource
+betarNull = beta0+(resource*0)
+KcarryCapr = KcarryCap0*resource
+lambdar = lambda0*resource
+gammar = gamma0 #not effected
+murPositive = mu0*resource
+murNegative = mu0/resource
+krPositive = k0*resource
+krNegative = k0/resource
+krNull = k0+(resource*0)
+```
+
+```{r - Model - Deter + Berding 1987 - Logistic Growth - Equilibrium 3 panel NNP}
+#Creating empty vectors
+equilibriumH_Null <- c()
+equilibriumP_Null <- c()
+tmpNull <- c()
+equilibriumH_Positive <- c()
+equilibriumP_Positive <- c()
+tmpPositive <- c()
+equilibriumH_Negative <- c()
+equilibriumP_Negative <- c()
+tmpNegative <- c()
+
+for (i in 1:length(resource)){ #This will go through the loop for the length of the resource variable
+  xstart <- c(H=69, P=1) #Resets the initial parameter values
+
+  #Null effect of Resources (beta & k)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNull <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_Null[length(equilibriumH_Null)+1] <- tmpNull$H[length(tmpNull$H)]
+  equilibriumP_Null[length(equilibriumP_Null)+1] <- tmpNull$P[length(tmpNull$P)]
+  
+  #Positive effect of Resources (beta & k)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositive <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_Positive[length(equilibriumH_Positive)+1] <- tmpPositive$H[length(tmpPositive$H)]
+  equilibriumP_Positive[length(equilibriumP_Positive)+1] <- tmpPositive$P[length(tmpPositive$P)]
+  
+  #Negative effect of Resources (beta & k) 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegative <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_Negative[length(equilibriumH_Negative)+1] <- tmpNegative$H[length(tmpNegative$H)]
+  equilibriumP_Negative[length(equilibriumP_Negative)+1] <- tmpNegative$P[length(tmpNegative$P)]
+
+}
+
+hostEquilibrium <- data.frame(R=resource,
+                              H_Negative=equilibriumH_Negative,
+                              H_Null=equilibriumH_Null,
+                              H_Positive=equilibriumH_Positive
+                              )
+
+parasiteEquilibrium <- data.frame(R=resource,
+                               P_Negative=equilibriumP_Negative,
+                               P_Null=equilibriumP_Null,
+                               P_Positive=equilibriumP_Positive
+                               )
+
+pphEquilibrium <- data.frame(R=resource,
+                             PpH_Negative=equilibriumP_Negative/equilibriumH_Negative,
+                             PpH_Null=equilibriumP_Null/equilibriumH_Null,
+                             PpH_Positive=equilibriumP_Positive/equilibriumH_Positive
+                             )
+
+legendParameters <- data.frame(Effected_Parameter = c(replicate(21, "Negative"),
+                                                      replicate(21, "Null"),
+                                                      replicate(21, "Positive")
+                                                      )
+                               )
+
+#Graphing
+hostsEq <- ggplot(data=hostEquilibrium, aes(x=R)) +
+  scale_y_continuous(breaks=seq(0, 80, by=20)) +
+  expand_limits(y=c(0,80)) +
+  geom_line(aes(y=H_Negative), color="lightcoral", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_Null), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_Positive), color="lightblue", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population (H)"))) +
+  #ggtitle("Infection Parameters") +
+  theme_classic() +
+  theme(text=element_text(family='serif')) + #sets Font Text to Times New Roman
+  theme(axis.text.x=element_text(size=12)) +
+  theme(axis.title.x=element_text(size=16)) +
+  theme(axis.text.y=element_text(size=12)) +
+  theme(axis.title.y=element_text(size=16)) +  
+  annotate("text", x=1, y=80, label="A", size=5)
+
+pphEq <- ggplot(data=pphEquilibrium, aes(x=R)) +
+  scale_y_continuous(breaks=seq(0, 30, by=10)) +
+  expand_limits(y=c(0,30)) +
+  geom_line(aes(y=PpH_Negative), color="lightcoral", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_Null), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_Positive), color="lightblue", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Abundance (P/H)"))) +
+  #ggtitle("60 Months (10 seasons)") + 
+  theme_classic() +
+  theme(text=element_text(family='serif')) + #sets Font Text to Times New Roman
+  theme(axis.text.x=element_text(size=12)) +
+  theme(axis.title.x=element_text(size=16)) +
+  theme(axis.text.y=element_text(size=12)) +
+  theme(axis.title.y=element_text(size=16)) +  
+  annotate("text", x=1, y=30, label="B", size=5)
+
+legendDataframe <- data.frame(X_Value=c(1, 1, 2, 2, 3, 3),
+                          Y_Value=c(1, 1, 2, 2, 3, 3),
+                          NNP=c("Negative", "Negative", "Null", "Null", "Positive", "Positive"))
+
+colors <- c("Decreased Host Overlap" = "lightcoral", "No Effect of Resources" = "black", "Increased Host Overlap" = "lightblue")
+
+legendPlot <- ggplot(data=legendDataframe) + 
+  geom_line(aes(x=X_Value, y=Y_Value, col=NNP)) +
+  labs(col="Resource Effect on Infection Parameters") +
+  scale_color_manual(values=colors) +
+  guides(color = guide_legend(override.aes = list(size = 2))) +
+  theme_classic() +
+  theme(text=element_text(family='serif')) + #sets Font Text to Times New Roman
+  theme(axis.text.x=element_text(size=12)) +
+  theme(axis.title.x=element_text(size=16)) +
+  theme(axis.text.y=element_text(size=12)) +
+  theme(axis.title.y=element_text(size=16)) 
+
+legendPlot <- cowplot::get_legend(legendPlot)
+
+plot_grid(legendPlot)
+
+behaviorGraph <- plot_grid(hostsEq, pphEq, labels=NULL, ncol=2, nrow=1)
+
+```
+
+```{r - Model - Deter + Berding 1987 - Logistic Growth - NNP with Edge Cases: Nutrition (beta- k+) and Stress (beta+ k-)}
+#Creating empty vectors
+equilibriumH_Null <- c()
+equilibriumP_Null <- c()
+tmpNull <- c()
+equilibriumH_Positive <- c()
+equilibriumP_Positive <- c()
+tmpPositive <- c()
+equilibriumH_Negative <- c()
+equilibriumP_Negative <- c()
+tmpNegative <- c()
+equilibriumH_Nutrition <- c()
+equilibriumP_Nutrition <- c()
+tmpNutrition <- c()
+equilibriumH_Stress <- c()
+equilibriumP_Stress <- c()
+tmpStress <- c()
+
+for (i in 1:length(resource)){ #This will go through the loop for the length of the resource variable
+  xstart <- c(H=69, P=1) #Resets the initial parameter values
+
+  #Null effect of Resources (beta & k)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNull[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNull[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNull <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_Null[length(equilibriumH_Null)+1] <- tmpNull$H[length(tmpNull$H)]
+  equilibriumP_Null[length(equilibriumP_Null)+1] <- tmpNull$P[length(tmpNull$P)]
+  
+  #Positive effect of Resources (beta+ & k+)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpPositive <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_Positive[length(equilibriumH_Positive)+1] <- tmpPositive$H[length(tmpPositive$H)]
+  equilibriumP_Positive[length(equilibriumP_Positive)+1] <- tmpPositive$P[length(tmpPositive$P)]
+  
+  #Negative effect of Resources (beta- & k-) 
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNegative <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_Negative[length(equilibriumH_Negative)+1] <- tmpNegative$H[length(tmpNegative$H)]
+  equilibriumP_Negative[length(equilibriumP_Negative)+1] <- tmpNegative$P[length(tmpNegative$P)]
+
+  #Edge Case: Nutrition (beta- & k+)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarNegative[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krPositive[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpNutrition <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_Nutrition[length(equilibriumH_Nutrition)+1] <- tmpNutrition$H[length(tmpNutrition$H)]
+  equilibriumP_Nutrition[length(equilibriumP_Nutrition)+1] <- tmpNutrition$P[length(tmpNutrition$P)]
+  
+  #Edge Case: Stress (beta+ & k-)
+  b=b0
+  d=d0
+  alpha=alpha0
+  beta=betarPositive[i]
+  lambda=lambda0
+  gamma=gamma0
+  mu=mu0
+  k=krNegative[i]
+  KcarryCap = KcarryCap0
+  #Creating parameters & running model
+  params <- c(b, d, alpha, beta, lambda, gamma, mu, k, KcarryCap)
+  tmpStress <- as.data.frame(ode(xstart, time, macroParasiteLogistic, params))
+  equilibriumH_Stress[length(equilibriumH_Stress)+1] <- tmpStress$H[length(tmpStress$H)]
+  equilibriumP_Stress[length(equilibriumP_Stress)+1] <- tmpStress$P[length(tmpStress$P)]
+  
+}
+```
+
+```{r - Creating dataframes}
+
+hostEquilibrium <- data.frame(R=resource,
+                              H_Negative=equilibriumH_Negative,
+                              H_Null=equilibriumH_Null,
+                              H_Positive=equilibriumH_Positive,
+                              H_Nutrition=equilibriumH_Nutrition,
+                              H_Stress=equilibriumH_Stress
+                              )
+
+parasiteEquilibrium <- data.frame(R=resource,
+                               P_Negative=equilibriumP_Negative,
+                               P_Null=equilibriumP_Null,
+                               P_Positive=equilibriumP_Positive,
+                               P_Nutrition=equilibriumP_Nutrition,
+                               P_Stress=equilibriumP_Stress
+                               )
+
+pphEquilibrium <- data.frame(R=resource,
+                             PpH_Negative=equilibriumP_Negative/equilibriumH_Negative,
+                             PpH_Null=equilibriumP_Null/equilibriumH_Null,
+                             PpH_Positive=equilibriumP_Positive/equilibriumH_Positive,
+                             PpH_Nutrition=equilibriumP_Nutrition/equilibriumH_Nutrition,
+                             PpH_Stress=equilibriumP_Stress/equilibriumH_Stress
+                             )
+
+legendDataframeBehav <- data.frame(X_Value=c(1, 1, 2, 2, 3, 3),
+                          Y_Value=c(1, 1, 2, 2, 3, 3),
+                          NNP=c("Negative", "Negative", "Null", "Null", "Positive", "Positive"))
+
+legendDataframeEdge <- data.frame(X_Value=c(1, 1, 2, 2, 3, 3, 4, 4, 5, 5),
+                          Y_Value=c(1, 1, 2, 2, 3, 3, 4, 4, 5, 5),
+                          NNP=c("Negative", "Negative", "Null", "Null", "Nutrition", "Nutrition", "Positive", "Positive", "Stress", "Stress"))
+
+```
+
+```{r - Graphing}
+#Graphing
+hostsEqBehav <- ggplot(data=hostEquilibrium, aes(x=R)) +
+  scale_y_continuous(breaks=seq(0, 80, by=20)) +
+  expand_limits(y=c(0,80)) +
+  geom_line(aes(y=H_Negative), color="lightcoral", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_Null), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_Positive), color="lightblue", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population (H)"))) +
+  #ggtitle("Infection Parameters") +
+  theme_classic() +
+  theme(text=element_text(family='serif')) + #sets Font Text to Times New Roman
+  theme(axis.text.x=element_text(size=12)) +
+  theme(axis.title.x=element_text(size=16)) +
+  theme(axis.text.y=element_text(size=12)) +
+  theme(axis.title.y=element_text(size=16)) +  
+  annotate("text", x=1.05, y=80, label="(a)", size=5)
+
+
+hostsEqFull <- ggplot(data=hostEquilibrium, aes(x=R)) +
+  scale_y_continuous(breaks=seq(0, 80, by=20)) +
+  expand_limits(y=c(0,80)) +
+  geom_line(aes(y=H_Negative), color="lightcoral", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_Null), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_Positive), color="lightblue", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_Nutrition), color="darkgreen", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=H_Stress), color="purple", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Host Population (H)"))) +
+  #ggtitle("Infection Parameters") +
+  theme_classic() +
+  theme(text=element_text(family='serif')) + #sets Font Text to Times New Roman
+  theme(axis.text.x=element_text(size=12)) +
+  theme(axis.title.x=element_text(size=16)) +
+  theme(axis.text.x=element_text(color="black")) +
+  theme(axis.text.y=element_text(size=12)) +
+  theme(axis.title.y=element_text(size=16)) +  
+  theme(axis.text.y=element_text(color="black")) +
+  annotate("text", x=1.05, y=80, label="(a)", size=5)
+
+pphEqBehav <- ggplot(data=pphEquilibrium, aes(x=R)) +
+  scale_y_continuous(breaks=seq(0, 30, by=10)) +
+  expand_limits(y=c(0,30)) +
+  geom_line(aes(y=PpH_Negative), color="lightcoral", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_Null), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_Positive), color="lightblue", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Abundance (P/H)"))) +
+  #ggtitle("60 Months (10 seasons)") + 
+  theme_classic() +
+  theme(text=element_text(family='serif')) + #sets Font Text to Times New Roman
+  theme(axis.text.x=element_text(size=12)) +
+  theme(axis.title.x=element_text(size=16)) +
+  theme(axis.text.y=element_text(size=12)) +
+  theme(axis.title.y=element_text(size=16)) +  
+  annotate("text", x=1.05, y=30, label="(b)", size=5)
+
+
+pphEqFull <- ggplot(data=pphEquilibrium, aes(x=R)) +
+  scale_y_continuous(breaks=seq(0, 30, by=10)) +
+  expand_limits(y=c(0,30)) +
+  geom_line(aes(y=PpH_Negative), color="lightcoral", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_Null), color="black", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_Positive), color="lightblue", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_Nutrition), color="darkgreen", show.legend = FALSE, size = 1.2) +
+  geom_line(aes(y=PpH_Stress), color="purple", show.legend = FALSE, size = 1.2) +
+  labs(x = expression(bold("Resource Effect")),
+       y = expression(bold("Parasite Abundance (P/H)"))) +
+  #ggtitle("60 Months (10 seasons)") + 
+  theme_classic() +
+  theme(text=element_text(family='serif')) + #sets Font Text to Times New Roman
+  theme(axis.text.x=element_text(size=12)) +
+  theme(axis.title.x=element_text(size=16)) +
+  theme(axis.text.x=element_text(color="black")) +
+  theme(axis.text.y=element_text(size=12)) +
+  theme(axis.title.y=element_text(size=16)) +  
+  theme(axis.text.y=element_text(color="black")) +
+  annotate("text", x=1.05, y=30, label="(b)", size=5)
+
+
+legendPlotBehav <- ggplot(data=legendDataframeBehav) + 
+  geom_line(aes(x=X_Value, y=Y_Value, col=NNP)) +
+  scale_color_manual(name="Resource Effect on Infection Parameters", 
+                     values=c("lightcoral", "black", "lightblue"), 
+                     labels=c("Decreased parasite encounter & increased heterogeneity (\U03B2-, k-)", "No effect of resources", "Increased parasite encounter & decreased heterogeneity (\U03B2+, k+)")) +
+  theme_classic() +
+  guides(color = guide_legend(override.aes = list(size = 2))) + #changes line width in legend to 2
+  theme(text=element_text(family='serif')) + #sets Font Text to Times New Roman
+  theme(axis.text.x=element_text(size=12)) +
+  theme(axis.title.x=element_text(size=16)) +
+  theme(axis.text.y=element_text(size=12)) +
+  theme(axis.title.y=element_text(size=16))
+
+
+legendPlotFull <- ggplot(data=legendDataframeEdge) + 
+  geom_line(aes(x=X_Value, y=Y_Value, col=NNP)) +
+  scale_color_manual(name="Resource Effect on Infection Parameters", 
+                     values=c("lightcoral", "darkgreen", "black", "lightblue", "purple"), 
+                     labels=c("Decreased parasite encounter & increased heterogeneity (\U03B2-, k-)", "Decreased parasite encounter & heterogeneity (\U03B2-, k+)", "No effect of resources", "Increased parasite encounter & decreased heterogeneity (\U03B2+, k+)", "Increased parasite encounter & heterogeneity (\U03B2+, k-)")) +
+  theme_classic() +
+  guides(color = guide_legend(override.aes = list(size = 2))) + #changes line width in legend to 2
+  theme(text=element_text(family='serif')) + #sets Font Text to Times New Roman
+  theme(axis.text.x=element_text(size=12)) +
+  theme(axis.title.x=element_text(size=16)) +
+  theme(axis.text.y=element_text(size=12)) +
+  theme(axis.title.y=element_text(size=16)) 
+
+#Taking legends from graphs with fake data
+legendPlotBehav <- cowplot::get_legend(legendPlotBehav)
+legendPlotFull <- cowplot::get_legend(legendPlotFull)
+
+#Plotting just the legends
+legendPlotBehav <- plot_grid(legendPlotBehav)
+legendPlotFull <- plot_grid(legendPlotFull)
+
+#This creates the graph with inset legend
+hostsEqFullWithInset <- ggdraw()+
+  draw_plot(hostsEqFull) +
+  draw_plot(legendPlotFull, x=0.25, y=0.25, height=0.1, width=0.2)
+
+#Behavior cases (negative and positive covariation of beta & k)
+behaviorGraphNoLegend <- plot_grid(hostsEqBehav, pphEqBehav, labels=NULL, ncol=2, nrow=1)
+behaviorGraph <- plot_grid(hostsEqBehav, pphEqBehav, legendPlotBehav, labels=NULL, ncol=2, nrow=2)
+
+#Stress and Nutrition cases
+fullCaseGraphNoLegend <- plot_grid(hostsEqFull, pphEqFull, labels=NULL, ncol=2, nrow=1)
+fullCaseGraphWithInset <- plot_grid(hostsEqFullWithInset, pphEqFull, labels=NULL, ncol=2, nrow=1) #this one doesn't play nicely with plot_grid
+fullCaseGraph <- plot_grid(hostsEqFull, pphEqFull, legendPlotFull, labels=NULL, ncol=3, nrow=1, rel_widths =c(1, 1, 0.5))
+
+#Graphs
+behaviorGraph
+fullCaseGraph
+
+#Graphs + Legends will be inset outside of R.
+ggsave(filename="fullCaseGraphNoLegend.png", plot=fullCaseGraphNoLegend, path="E:/00000 RESEARCH/Graphs/Macroparasite Graphs/Figure 2 (Host and PpH ~ Resource Effect)", width=6.5, height=3.75, units="in", dpi=600)
+
+ggsave(filename="fullLegend.png", plot=legendPlotFull, path="E:/00000 RESEARCH/Graphs/Macroparasite Graphs/Figure 2 (Host and PpH ~ Resource Effect)", width=3.55, height=1.6, dpi=600)
+
+
+```
+
+```{r - Saving Graphs}
+#ggsave(filename="behaviorGraph.png", plot=behaviorGraphNoLegend, path="E:/00000 RESEARCH/Graphs/Macroparasite Graphs/Figure 2 (Host and PpH ~ Resource Effect)", width=7, height=3.5, units="in", dpi=300)
+#ggsave(filename="behaviorGraphLegend.png", plot=legendPlotBehav, path="E:/00000 RESEARCH/Graphs/Macroparasite Graphs/Figure 2 (Host and PpH ~ Resource Effect)", width=5, height=2, units="in", dpi=300)
+
+#ggsave(filename="edgeCaseGraph.png", plot=edgeCaseGraphNoLegend, path="E:/00000 RESEARCH/Graphs/Macroparasite Graphs/Figure 2 (Host and PpH ~ Resource Effect)", width=7, height=3.5, units="in", dpi=300)
+#ggsave(filename="edgeCaseGraphLegend.png", plot=legendPlotEdge, path="E:/00000 RESEARCH/Graphs/Macroparasite Graphs/Figure 2 (Host and PpH ~ Resource Effect)", width=5, height=2, units="in", dpi=300)
+
+#ggsave(filename="fullCaseGraph.png", plot=fullCaseGraphNoLegend, path="E:/00000 RESEARCH/Graphs/Macroparasite Graphs/Figure 2 (Host and PpH ~ Resource Effect)", width=6.5, height=3.75, units="in", dpi=600)
+#ggsave(filename="fullCaseGraph.png", plot=fullCaseGraph, path="E:/00000 RESEARCH/Graphs/Macroparasite Graphs/Figure 2 (Host and PpH ~ Resource Effect)", width=6.5, height=3.75, units="in", dpi=600)
+
+#save_plot(filename="E:/00000 RESEARCH/Graphs/Macroparasite Graphs/Figure 2 (Host and PpH ~ Resource Effect)/fullCaseGraph.png", plot=fullCaseGraph, ncol=3, nrow=1)
+#save_plot(filename="E:/00000 RESEARCH/Graphs/Macroparasite Graphs/Figure 2 (Host and PpH ~ Resource Effect)/fullCaseGraphWithInset.png", plot=fullCaseGraphWithInset, ncol=2, nrow=1)
+
+```
+
